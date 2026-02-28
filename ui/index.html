@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Assistant</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  :root {
+    --bg-input: #202020;
+    --bg-dropdown: #252526;
+  }
+
+  body { padding: 0; border-color: rgba(255,255,255,0.25); }
+
+  .content-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 12px 12px;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    font-family: var(--font-ui);
+  }
+
+  /* Fixed sections (command picker, buttons, status) */
+  .section-fixed {
+    margin-bottom: 8px;
+    flex-shrink: 0;
+  }
+
+  /* Resizable panels container */
+  .panels {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    margin-bottom: 8px;
+  }
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 40px;
+    overflow: hidden;
+  }
+
+  .panel label {
+    flex-shrink: 0;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .btn-clear-field {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 0 2px;
+    cursor: pointer;
+    line-height: 1;
+    visibility: hidden;
+  }
+
+  .btn-clear-field:hover {
+    color: var(--text-primary);
+  }
+
+  .btn-clear-field.visible {
+    visibility: visible;
+  }
+
+  /* Splitter handle */
+  .splitter {
+    height: 6px;
+    flex-shrink: 0;
+    cursor: row-resize;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .splitter::after {
+    content: '';
+    width: 40px;
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+  }
+
+  .splitter:hover::after {
+    background: var(--accent);
+  }
+
+  textarea, input[type="text"] {
+    width: 100%;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.4;
+    resize: none;
+    outline: none;
+    user-select: text;
+  }
+
+  textarea:focus, input[type="text"]:focus {
+    border-color: var(--border-focus);
+  }
+
+  textarea.readonly {
+    color: #CCCCCC;
+    cursor: default;
+  }
+
+  .panel textarea {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Command picker */
+  .command-picker {
+    position: relative;
+  }
+
+  #command-input {
+    font-family: var(--font-ui);
+    font-size: 13px;
+    padding: 6px 8px;
+  }
+
+  #command-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-dropdown);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    max-height: 250px;
+    overflow-y: auto;
+    z-index: 100;
+    display: none;
+  }
+
+  #command-dropdown.visible {
+    display: block;
+  }
+
+  .dropdown-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .dropdown-item:hover, .dropdown-item.active {
+    background: var(--bg-hover);
+    color: #FFFFFF;
+  }
+
+  .dropdown-item .name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dropdown-item kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    background: transparent;
+    flex-shrink: 0;
+  }
+
+  .dropdown-item .model-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  /* Buttons */
+  .button-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-shrink: 0;
+  }
+
+  button {
+    padding: 6px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+  }
+
+  button:hover {
+    background: var(--bg-hover);
+  }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #FFFFFF;
+    font-weight: 500;
+  }
+
+  button.primary:hover {
+    background: var(--accent-hover);
+  }
+
+  .spacer {
+    flex: 1;
+  }
+
+  /* Status bar */
+  .status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+    padding-top: 2px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  #status {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  #model-display {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    cursor: default;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #444;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #555;
+  }
+</style>
+</head>
+<body>
+
+  <div class="titlebar">
+    <div class="grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="titlebar-title"><span class="titlebar-icon">🤖</span> AI Assistant</div>
+    <div class="window-controls">
+      <button class="win-btn win-minimize" onclick="minimizeWindow()">&#x2212;</button>
+      <button class="win-btn win-close" onclick="closeWindow()">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="content-area">
+  <div class="section-fixed">
+    <label>Command <kbd id="command-hotkey-label" style="opacity:0.5"></kbd> — type to filter or pick from list</label>
+    <div class="command-picker">
+      <input type="text" id="command-input" autocomplete="off" placeholder="Select a command...">
+      <div id="command-dropdown"></div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel" id="panel-clipboard">
+      <div class="panel-header">
+        <label>Clipboard / Input text</label>
+        <button class="btn-clear-field" id="btn-clear-clipboard" title="Clear">&times;</button>
+      </div>
+      <textarea id="clipboard-preview" placeholder="Paste or type text here..."></textarea>
+    </div>
+
+    <div class="splitter" id="splitter-1"></div>
+
+    <div class="panel" id="panel-prompt">
+      <div class="panel-header">
+        <label>Prompt (what to do with the text above)</label>
+        <button class="btn-clear-field" id="btn-clear-prompt" title="Clear">&times;</button>
+      </div>
+      <textarea id="prompt" placeholder="Enter your instructions..."></textarea>
+    </div>
+
+    <div class="splitter" id="splitter-2"></div>
+
+    <div class="panel" id="panel-result">
+      <label>Result</label>
+      <textarea id="result" class="readonly" readonly></textarea>
+    </div>
+  </div>
+
+  <div class="button-row">
+    <button class="primary" id="btn-go">Go <span style="opacity:0.5">(Ctrl+Enter)</span></button>
+    <button id="btn-copy">Copy</button>
+    <button id="btn-clear">Clear</button>
+    <span class="spacer"></span>
+    <button id="btn-prompts" title="Edit prompts">&#9998;</button>
+    <button id="btn-settings" title="Settings">&#9881;</button>
+    <button id="btn-close">Close</button>
+  </div>
+
+  <div class="status-row">
+    <div id="status">Ready</div>
+    <div id="model-display"></div>
+  </div>
+  </div>
+
+<script src="ahk-bridge.js"></script>
+<script>
+  // =============================================
+  // STATE
+  // =============================================
+  let allCommands = [];
+  let filteredCommands = [];
+  let activeIndex = -1;
+
+  // =============================================
+  // DOM REFS
+  // =============================================
+  const clipPreview = document.getElementById('clipboard-preview');
+  const commandInput = document.getElementById('command-input');
+  const commandDropdown = document.getElementById('command-dropdown');
+  const prompt = document.getElementById('prompt');
+  const result = document.getElementById('result');
+  const status = document.getElementById('status');
+  const modelDisplay = document.getElementById('model-display');
+
+  // =============================================
+  // HELPERS
+  // =============================================
+  function toggleClearBtn(btnId, text) {
+    const btn = document.getElementById(btnId);
+    if (btn) btn.classList.toggle('visible', text.length > 0);
+  }
+
+  // =============================================
+  // AHK → JS: functions called via ExecuteScriptAsync
+  // =============================================
+  function setModelDisplay(modelId) {
+    modelDisplay.textContent = modelId;
+  }
+
+  function setClipboardPreview(text) {
+    clipPreview.value = text;
+    toggleClearBtn('btn-clear-clipboard', text);
+  }
+
+  function setCommands(commands) {
+    if (typeof commands === 'string') commands = JSON.parse(commands);
+    allCommands = commands;
+    filteredCommands = [...commands];
+    renderDropdown();
+  }
+
+  function setPromptText(text) {
+    prompt.value = text;
+    toggleClearBtn('btn-clear-prompt', text);
+  }
+
+  function setResult(text) {
+    result.value = text;
+  }
+
+  function setStatus(text) {
+    status.textContent = text;
+  }
+
+  function setCommandHotkey(ahkKey) {
+    const label = document.getElementById('command-hotkey-label');
+    if (!label) return;
+    const display = ahkToDisplay(ahkKey);
+    label.textContent = display ? '(' + display + ')' : '';
+  }
+
+  function ahkToDisplay(ahk) {
+    if (!ahk) return '';
+    if (ahk.includes(',')) {
+      const parts = ahk.split(',');
+      const prefix = ahkToDisplaySingle(parts[0] || '');
+      const suffix = ahkToDisplaySingle(parts.slice(1).join(',') || '');
+      return prefix && suffix ? (prefix + ' -> ' + suffix) : (prefix || suffix);
+    }
+    return ahkToDisplaySingle(ahk);
+  }
+
+  function ahkToDisplaySingle(ahk) {
+    if (!ahk) return '';
+    let display = '';
+    let rest = ahk;
+    if (rest.includes('^')) { display += 'Ctrl+'; rest = rest.replace('^', ''); }
+    if (rest.includes('!')) { display += 'Alt+'; rest = rest.replace('!', ''); }
+    if (rest.includes('+')) { display += 'Shift+'; rest = rest.replace('+', ''); }
+    if (rest.includes('#')) { display += 'Win+'; rest = rest.replace('#', ''); }
+    if (rest.length === 1) rest = rest.toUpperCase();
+    return display + rest;
+  }
+
+  function focusPrompt() {
+    prompt.focus();
+  }
+
+  function focusCommands() {
+    commandInput.focus();
+    showDropdown();
+  }
+
+  function clearFields() {
+    commandInput.value = '';
+    prompt.value = '';
+    result.value = '';
+    status.textContent = 'Ready';
+    toggleClearBtn('btn-clear-prompt', '');
+    prompt.focus();
+  }
+
+  // =============================================
+  // RESIZABLE PANELS
+  // =============================================
+  const STORAGE_KEY = 'ai-assistant-panel-sizes';
+  const panelClip = document.getElementById('panel-clipboard');
+  const panelPrompt = document.getElementById('panel-prompt');
+  const panelResult = document.getElementById('panel-result');
+  const splitter1 = document.getElementById('splitter-1');
+  const splitter2 = document.getElementById('splitter-2');
+  const panelsContainer = document.querySelector('.panels');
+
+  // Default proportions: clipboard 25%, prompt 25%, result 50%
+  let panelRatios = [0.25, 0.25, 0.50];
+
+  function loadPanelSizes() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === 3) {
+          panelRatios = parsed;
+        }
+      }
+    } catch (e) {}
+  }
+
+  function savePanelSizes() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(panelRatios));
+    } catch (e) {}
+  }
+
+  function applyPanelSizes() {
+    const container = panelsContainer;
+    const totalHeight = container.clientHeight;
+    // Subtract splitter heights (2 splitters × 6px)
+    const available = totalHeight - 12;
+    if (available <= 0) return;
+
+    // Label heights (~20px each for the 3 panels)
+    const labelHeight = 20;
+    const usable = available - (labelHeight * 3);
+    if (usable <= 0) return;
+
+    const h1 = Math.max(20, Math.round(usable * panelRatios[0]) + labelHeight);
+    const h2 = Math.max(20, Math.round(usable * panelRatios[1]) + labelHeight);
+    const h3 = Math.max(20, available - h1 - h2 - 12);
+
+    panelClip.style.height = h1 + 'px';
+    panelPrompt.style.height = h2 + 'px';
+    panelResult.style.height = h3 + 'px';
+
+    panelClip.style.flex = 'none';
+    panelPrompt.style.flex = 'none';
+    panelResult.style.flex = 'none';
+  }
+
+  function initSplitter(splitterEl, panelAbove, panelBelow, ratioIdxAbove, ratioIdxBelow) {
+    let startY = 0;
+    let startAboveH = 0;
+    let startBelowH = 0;
+
+    function onMouseDown(e) {
+      e.preventDefault();
+      startY = e.clientY;
+      startAboveH = panelAbove.offsetHeight;
+      startBelowH = panelBelow.offsetHeight;
+      document.body.style.cursor = 'row-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    }
+
+    function onMouseMove(e) {
+      const delta = e.clientY - startY;
+      const newAbove = Math.max(40, startAboveH + delta);
+      const newBelow = Math.max(40, startBelowH - delta);
+
+      panelAbove.style.height = newAbove + 'px';
+      panelBelow.style.height = newBelow + 'px';
+    }
+
+    function onMouseUp() {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      // Recalculate ratios from current pixel sizes
+      recalcRatios();
+      savePanelSizes();
+    }
+
+    splitterEl.addEventListener('mousedown', onMouseDown);
+  }
+
+  function recalcRatios() {
+    const totalHeight = panelsContainer.clientHeight;
+    const available = totalHeight - 12; // splitters
+    const labelHeight = 20;
+    const usable = available - (labelHeight * 3);
+    if (usable <= 0) return;
+
+    const h1 = panelClip.offsetHeight - labelHeight;
+    const h2 = panelPrompt.offsetHeight - labelHeight;
+    const h3 = panelResult.offsetHeight - labelHeight;
+    const total = h1 + h2 + h3;
+    if (total <= 0) return;
+
+    panelRatios = [h1 / total, h2 / total, h3 / total];
+  }
+
+  // Double-click splitter to reset to equal sizes
+  splitter1.addEventListener('dblclick', () => {
+    panelRatios = [0.33, 0.33, 0.34];
+    applyPanelSizes();
+    savePanelSizes();
+  });
+  splitter2.addEventListener('dblclick', () => {
+    panelRatios = [0.33, 0.33, 0.34];
+    applyPanelSizes();
+    savePanelSizes();
+  });
+
+  // Initialize splitters
+  initSplitter(splitter1, panelClip, panelPrompt, 0, 1);
+  initSplitter(splitter2, panelPrompt, panelResult, 1, 2);
+
+  // Load and apply saved sizes
+  loadPanelSizes();
+
+  // Apply sizes once layout is ready
+  requestAnimationFrame(() => {
+    applyPanelSizes();
+  });
+
+  // Re-apply on window resize
+  window.addEventListener('resize', () => {
+    applyPanelSizes();
+  });
+
+  // =============================================
+  // COMMAND PICKER
+  // =============================================
+  function renderDropdown() {
+    commandDropdown.innerHTML = '';
+    activeIndex = -1;
+    filteredCommands.forEach((cmd, i) => {
+      const div = document.createElement('div');
+      div.className = 'dropdown-item';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'name';
+      nameSpan.textContent = cmd.name;
+      div.appendChild(nameSpan);
+
+      if (cmd.hotkey) {
+        const kbd = document.createElement('kbd');
+        kbd.textContent = ahkToDisplay(cmd.hotkey);
+        div.appendChild(kbd);
+      }
+
+      if (cmd.model) {
+        const modelSpan = document.createElement('span');
+        modelSpan.className = 'model-badge';
+        modelSpan.textContent = cmd.model;
+        div.appendChild(modelSpan);
+      }
+
+      div.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        selectCommand(cmd.name);
+      });
+      commandDropdown.appendChild(div);
+    });
+  }
+
+  function showDropdown() {
+    if (filteredCommands.length === 0) return;
+    commandDropdown.classList.add('visible');
+  }
+
+  function hideDropdown() {
+    commandDropdown.classList.remove('visible');
+    activeIndex = -1;
+  }
+
+  function sendToAHK(action, data = {}) {
+    postToAHK({ action, ...data });
+  }
+
+  function selectCommand(name) {
+    commandInput.value = name;
+    hideDropdown();
+    sendToAHK('commandSelected');
+  }
+
+  function updateActiveItem() {
+    const items = commandDropdown.querySelectorAll('.dropdown-item');
+    items.forEach((item, i) => {
+      item.classList.toggle('active', i === activeIndex);
+    });
+    if (activeIndex >= 0 && items[activeIndex]) {
+      items[activeIndex].scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  commandInput.addEventListener('input', () => {
+    const typed = commandInput.value.toLowerCase();
+    if (typed === '') {
+      filteredCommands = [...allCommands];
+    } else {
+      filteredCommands = allCommands.filter(c => c.name.toLowerCase().includes(typed));
+    }
+    renderDropdown();
+    showDropdown();
+  });
+
+  commandInput.addEventListener('focus', () => {
+    filteredCommands = commandInput.value
+      ? allCommands.filter(c => c.name.toLowerCase().includes(commandInput.value.toLowerCase()))
+      : [...allCommands];
+    renderDropdown();
+    showDropdown();
+  });
+
+  commandInput.addEventListener('blur', () => {
+    setTimeout(hideDropdown, 150);
+  });
+
+  commandInput.addEventListener('keydown', (e) => {
+    if (!commandDropdown.classList.contains('visible')) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        showDropdown();
+        e.preventDefault();
+        return;
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIndex = Math.min(activeIndex + 1, filteredCommands.length - 1);
+      updateActiveItem();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIndex = Math.max(activeIndex - 1, 0);
+      updateActiveItem();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIndex >= 0 && filteredCommands[activeIndex]) {
+        selectCommand(filteredCommands[activeIndex].name);
+      }
+    } else if (e.key === 'Escape') {
+      hideDropdown();
+      e.stopPropagation();
+    }
+  });
+
+  // =============================================
+  // CLEAR FIELD BUTTONS
+  // =============================================
+  function setupClearButton(btnId, field) {
+    const btn = document.getElementById(btnId);
+    function update() { btn.classList.toggle('visible', field.value.length > 0); }
+    field.addEventListener('input', update);
+    btn.addEventListener('click', () => { field.value = ''; update(); field.focus(); });
+    return update;
+  }
+
+  const updateClearClipboard = setupClearButton('btn-clear-clipboard', clipPreview);
+  const updateClearPrompt = setupClearButton('btn-clear-prompt', prompt);
+
+  // =============================================
+  // BUTTONS
+  // =============================================
+  document.getElementById('btn-go').addEventListener('click', () => sendToAHK('submit'));
+  document.getElementById('btn-copy').addEventListener('click', () => sendToAHK('copy'));
+  document.getElementById('btn-clear').addEventListener('click', () => sendToAHK('clear'));
+  document.getElementById('btn-prompts').addEventListener('click', () => sendToAHK('promptEditor'));
+  document.getElementById('btn-settings').addEventListener('click', () => sendToAHK('settings'));
+  document.getElementById('btn-close').addEventListener('click', () => sendToAHK('hide'));
+
+  // =============================================
+  // KEYBOARD SHORTCUTS
+  // =============================================
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      sendToAHK('submit');
+    }
+    if (e.key === 'Escape' && !commandDropdown.classList.contains('visible')) {
+      e.preventDefault();
+      sendToAHK('hide');
+    }
+  });
+
+  // =============================================
+  // READY SIGNAL
+  // =============================================
+  document.addEventListener('DOMContentLoaded', () => {
+    sendToAHK('ready');
+  });
+</script>
+</body>
+</html>

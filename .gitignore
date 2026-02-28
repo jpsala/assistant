@@ -1,0 +1,7 @@
+.env
+model.conf
+settings.conf
+dist/
+*.zip
+settings.json
+pending.md

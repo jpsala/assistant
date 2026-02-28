@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Confirm Prompt</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  :root {
+    --bg-input: #2A2A2A;
+    --bg-hover: #333333;
+    --text-muted: #5A5A5A;
+    --radius: 5px;
+    --bg-section: #242424;
+  }
+
+  body { padding: 0; }
+
+  .content-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px 12px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .confirm-content {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 2px;
+  }
+
+  .section {
+    margin-bottom: 14px;
+    background: var(--bg-section);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .section-header {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    padding: 8px 12px 7px;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-body {
+    padding: 10px 12px 12px;
+  }
+
+  .section-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    line-height: 1.4;
+  }
+
+  .hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+    margin-bottom: 8px;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: #1f1f1f;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+  }
+
+  textarea {
+    width: 100%;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.4;
+    resize: none;
+    outline: none;
+    user-select: text;
+  }
+
+  textarea:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 2px var(--accent-dim);
+  }
+
+  #prompt-input {
+    min-height: 120px;
+    margin-top: 8px;
+  }
+
+  #text-input {
+    min-height: 220px;
+    margin-top: 8px;
+  }
+
+  .footer {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .button-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+  }
+
+  button {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+
+  button:hover {
+    background: var(--bg-hover);
+    border-color: #444;
+  }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 500;
+  }
+
+  button.primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+
+  #status {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: right;
+    min-height: 14px;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+</style>
+</head>
+<body>
+  <div class="titlebar">
+    <div class="grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="titlebar-title"><span class="titlebar-icon">✎</span> Confirm Prompt Run</div>
+    <div class="window-controls">
+      <button class="win-btn win-minimize" onclick="minimizeWindow()">&#x2212;</button>
+      <button class="win-btn win-close" onclick="closeWindow()">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="content-area">
+    <div class="confirm-content">
+      <div class="section">
+        <div class="section-header">Prompt</div>
+        <div class="section-body">
+          <div id="prompt-name" class="mono"></div>
+          <textarea id="prompt-input" spellcheck="false"></textarea>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">Text To Process</div>
+        <div class="section-body">
+          <div class="section-desc">Edit this content before running the prompt. Source is selection, fallback clipboard.</div>
+          <textarea id="text-input" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="button-row">
+        <button class="primary" id="btn-run">Run Prompt</button>
+        <button id="btn-cancel">Cancel</button>
+      </div>
+      <div id="status">Ctrl+Enter to run · Esc to cancel</div>
+    </div>
+  </div>
+
+<script src="ahk-bridge.js"></script>
+<script>
+  const promptNameEl = document.getElementById('prompt-name');
+  const promptInputEl = document.getElementById('prompt-input');
+  const textInputEl = document.getElementById('text-input');
+  const statusEl = document.getElementById('status');
+
+  function sendToAHK(action, data = {}) {
+    postToAHK({ action, ...data });
+  }
+
+  function setConfirmData(data) {
+    if (typeof data === 'string') data = JSON.parse(data);
+    promptNameEl.textContent = data.name || '';
+    promptInputEl.value = data.prompt || '';
+    textInputEl.value = data.input || '';
+    setStatus('');
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text || '';
+  }
+
+  function focusPromptField() {
+    promptInputEl.focus();
+    promptInputEl.setSelectionRange(promptInputEl.value.length, promptInputEl.value.length);
+  }
+
+  function confirmRun() {
+    sendToAHK('confirm', {
+      prompt: promptInputEl.value,
+      input: textInputEl.value
+    });
+  }
+
+  document.getElementById('btn-run').addEventListener('click', confirmRun);
+  document.getElementById('btn-cancel').addEventListener('click', () => sendToAHK('cancel'));
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      sendToAHK('cancel');
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'enter') {
+      e.preventDefault();
+      confirmRun();
+      return;
+    }
+    if (e.key === 'Enter' && e.target !== textInputEl && e.target !== promptInputEl) {
+      e.preventDefault();
+      confirmRun();
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => sendToAHK('ready'));
+</script>
+</body>
+</html>

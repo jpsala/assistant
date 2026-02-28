@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Editor</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  :root {
+    --bg-input: #202020;
+    --bg-dropdown: #252526;
+  }
+
+  body { padding: 0; border-color: rgba(255,255,255,0.25); }
+
+  .content-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px 16px;
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  .section { margin-bottom: 8px; flex-shrink: 0; }
+  .section.editor { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+  select, input[type="text"], textarea {
+    width: 100%;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    outline: none;
+    user-select: text;
+  }
+
+  select:focus, input[type="text"]:focus, textarea:focus {
+    border-color: var(--border-focus);
+  }
+
+  textarea {
+    font-family: var(--font-mono);
+    line-height: 1.4;
+    resize: none;
+  }
+
+  textarea.readonly {
+    color: #888888;
+    background: #1A1A1A;
+  }
+
+  #prompt-text { flex: 1; min-height: 80px; }
+
+  /* Generic picker (used for both prompt list and model) */
+  .picker { position: relative; }
+
+  .picker-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-dropdown);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 100;
+    display: none;
+  }
+
+  .picker-dropdown.visible { display: block; }
+
+  .dropdown-item {
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .dropdown-item:hover, .dropdown-item.active {
+    background: var(--bg-hover);
+    color: #FFFFFF;
+  }
+
+  .dropdown-item .tag {
+    font-size: 11px;
+    color: var(--accent);
+    font-family: var(--font-mono);
+  }
+
+  .dropdown-item .model-name {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: 12px;
+    flex-shrink: 0;
+  }
+
+  .dropdown-item .model-id {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  /* Model row with clear button */
+  .model-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .provider-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .model-row .picker { flex: 1; }
+
+  .btn-clear-model {
+    padding: 5px 8px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-input);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .btn-clear-model:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  /* Hotkey row */
+  .hotkey-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .hotkey-row input {
+    flex: 1;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .hotkey-row input:focus {
+    color: var(--text-muted);
+  }
+
+  .btn-clear-hotkey {
+    padding: 5px 8px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-input);
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .btn-clear-hotkey:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .confirm-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .confirm-row input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+  }
+
+  /* Name row */
+  .name-row { display: flex; gap: 8px; }
+  .name-row input { flex: 1; }
+
+  /* Buttons */
+  .button-row {
+    display: flex;
+    gap: 8px;
+    padding-top: 12px;
+    flex-shrink: 0;
+  }
+
+  button {
+    padding: 6px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    cursor: pointer;
+    outline: none;
+  }
+
+  button:hover { background: var(--bg-hover); }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #FFFFFF;
+    font-weight: 500;
+  }
+
+  button.primary:hover { background: var(--accent-hover); }
+
+  button.danger {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #FFFFFF;
+  }
+
+  button.danger:hover { background: var(--danger-hover); }
+  button:disabled { opacity: 0.4; cursor: default; }
+
+  .spacer { flex: 1; }
+
+  #status {
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    padding-top: 4px;
+  }
+
+  .file-badge {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: #2A2A2A;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 8px;
+  }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg-primary); }
+  ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #555; }
+</style>
+</head>
+<body>
+
+  <div class="titlebar">
+    <div class="grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="titlebar-title"><span class="titlebar-icon">✎</span> Prompt Editor</div>
+    <div class="window-controls">
+      <button class="win-btn win-minimize" onclick="minimizeWindow()">&#x2212;</button>
+      <button class="win-btn win-close" onclick="closeWindow()">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="content-area">
+  <div class="section">
+    <label>Prompt — type to filter</label>
+    <div class="picker">
+      <input type="text" id="prompt-filter" autocomplete="off" placeholder="Search prompts...">
+      <div id="prompt-dropdown" class="picker-dropdown"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <label>Name</label>
+    <div class="name-row">
+      <input type="text" id="prompt-name" placeholder="Prompt name...">
+      <span id="file-indicator"></span>
+    </div>
+  </div>
+
+  <div class="section">
+    <label>Provider <span style="color:var(--text-muted)">(blank = use app default)</span></label>
+    <div class="provider-row">
+      <select id="prompt-provider">
+        <option value="">(Use app default)</option>
+        <option value="openrouter">OpenRouter</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic</option>
+        <option value="xai">xAI</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="section">
+    <label>Model <span style="color:var(--text-muted)">(blank = use provider default) — type to filter</span></label>
+    <div class="model-row">
+      <div class="picker">
+        <input type="text" id="prompt-model" autocomplete="off" placeholder="Search models...">
+        <div id="model-dropdown" class="picker-dropdown"></div>
+      </div>
+      <button class="btn-clear-model" id="btn-clear-model" title="Clear model (use default)">&#10005;</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <label>Hotkey <span style="color:var(--text-muted)">(optional — single combo or chord: Alt+Q -> R)</span></label>
+    <div class="hotkey-row">
+      <input type="text" id="prompt-hotkey" readonly placeholder="Click to set hotkey..."
+             data-ahk-key="">
+      <button class="btn-clear-hotkey" id="btn-clear-hotkey" title="Clear hotkey">&#10005;</button>
+    </div>
+    <div class="confirm-row" style="margin-top:8px;">
+      <input type="checkbox" id="prompt-confirm">
+      <label for="prompt-confirm" style="margin:0; cursor:pointer;">Confirm prompt before running by hotkey</label>
+    </div>
+  </div>
+
+  <div class="section editor">
+    <label>Prompt text</label>
+    <textarea id="prompt-text" placeholder="Enter prompt instructions..."></textarea>
+  </div>
+
+  <div class="button-row">
+    <button class="primary" id="btn-save">Save <span style="opacity:0.5">(Ctrl+S)</span></button>
+    <button id="btn-new">New</button>
+    <button class="danger" id="btn-delete" disabled>Delete</button>
+    <span class="spacer"></span>
+    <button id="btn-close">Close</button>
+  </div>
+
+  <div id="status">Select a prompt to edit</div>
+  </div>
+
+<script src="ahk-bridge.js"></script>
+<script>
+  // =============================================
+  // STATE
+  // =============================================
+  let allPrompts = [];         // [{name, prompt, provider, model, hotkey, confirm, isFile}, ...]
+  let filteredPrompts = [];
+  let promptActiveIdx = -1;
+  let selectedName = '';
+  let isFilePrompt = false;
+  let defaultProvider = 'openrouter';
+
+  let allModels = [];          // [{id, name}, ...]
+  let filteredModels = [];
+  let modelActiveIdx = -1;
+
+  // =============================================
+  // DOM REFS
+  // =============================================
+  const filterInput = document.getElementById('prompt-filter');
+  const promptDropdown = document.getElementById('prompt-dropdown');
+  const nameInput = document.getElementById('prompt-name');
+  const providerInput = document.getElementById('prompt-provider');
+  const modelInput = document.getElementById('prompt-model');
+  const modelDropdown = document.getElementById('model-dropdown');
+  const promptText = document.getElementById('prompt-text');
+  const confirmInput = document.getElementById('prompt-confirm');
+  const fileIndicator = document.getElementById('file-indicator');
+  const btnDelete = document.getElementById('btn-delete');
+  const statusEl = document.getElementById('status');
+
+  // =============================================
+  // AHK → JS
+  // =============================================
+  function setPrompts(data) {
+    if (typeof data === 'string') data = JSON.parse(data);
+    allPrompts = data;
+    filteredPrompts = [...data];
+    renderPromptDropdown();
+    statusEl.textContent = data.length + ' prompts loaded';
+  }
+
+  function setDefaultProvider(provider) {
+    if (!provider) return;
+    defaultProvider = provider;
+    if (!providerInput.value) {
+      providerInput.value = provider;
+    }
+  }
+
+  function setModels(data) {
+    if (typeof data === 'string') data = JSON.parse(data);
+    allModels = data;
+    filteredModels = [...data];
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  function onSaved(name) {
+    selectedName = name;
+    // Re-select the prompt in the list to refresh
+    const p = allPrompts.find(x => x.name === name);
+    if (p) selectPrompt(name);
+    statusEl.textContent = 'Saved: ' + name;
+  }
+
+  // =============================================
+  // GENERIC HELPERS
+  // =============================================
+  function escHtml(s) {
+    s = String(s || '');
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function sendToAHK(action, data = {}) {
+    postToAHK({ action, ...data });
+  }
+
+  // =============================================
+  // HOTKEY HELPERS (mirrors settings.html)
+  // =============================================
+  function ahkToDisplay(ahk) {
+    if (!ahk) return '';
+    if (ahk.includes(',')) {
+      const parts = ahk.split(',');
+      const prefix = ahkToDisplaySingle(parts[0] || '');
+      const suffix = ahkToDisplaySingle(parts.slice(1).join(',') || '');
+      return prefix && suffix ? (prefix + ' -> ' + suffix) : (prefix || suffix);
+    }
+    return ahkToDisplaySingle(ahk);
+  }
+
+  function ahkToDisplaySingle(ahk) {
+    if (!ahk) return '';
+    let display = '';
+    let rest = ahk;
+    if (rest.includes('^')) { display += 'Ctrl+'; rest = rest.replace('^', ''); }
+    if (rest.includes('!')) { display += 'Alt+'; rest = rest.replace('!', ''); }
+    if (rest.includes('+')) { display += 'Shift+'; rest = rest.replace('+', ''); }
+    if (rest.includes('#')) { display += 'Win+'; rest = rest.replace('#', ''); }
+    if (rest.length === 1) rest = rest.toUpperCase();
+    return display + rest;
+  }
+
+  function eventToAhk(e, allowModifiers = true) {
+    if (!e || !e.key || e.key === 'Unidentified') return null;
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return null;
+    let ahk = '';
+    if (allowModifiers) {
+      if (e.ctrlKey) ahk += '^';
+      if (e.altKey) ahk += '!';
+      if (e.shiftKey) ahk += '+';
+      if (e.metaKey) ahk += '#';
+    } else if (e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) {
+      return null;
+    }
+    const keyMap = {
+      'F1': 'F1', 'F2': 'F2', 'F3': 'F3', 'F4': 'F4',
+      'F5': 'F5', 'F6': 'F6', 'F7': 'F7', 'F8': 'F8',
+      'F9': 'F9', 'F10': 'F10', 'F11': 'F11', 'F12': 'F12',
+      'Escape': 'Esc', 'Enter': 'Enter', 'Tab': 'Tab',
+      'Backspace': 'Backspace', 'Delete': 'Delete',
+      'ArrowUp': 'Up', 'ArrowDown': 'Down',
+      'ArrowLeft': 'Left', 'ArrowRight': 'Right',
+      'Home': 'Home', 'End': 'End',
+      'PageUp': 'PgUp', 'PageDown': 'PgDn',
+      'Insert': 'Insert', ' ': 'Space'
+    };
+    let key = keyMap[e.key] || e.key.toLowerCase();
+    if (!key || key === 'undefined') return null;
+    if (!allowModifiers && key.length > 1 && !keyMap[e.key]) return null;
+    return ahk + key;
+  }
+
+  // Wire up the hotkey recorder
+  const hotkeyInput = document.getElementById('prompt-hotkey');
+  let recordingHotkey = false;
+  let waitingChordSecondKey = false;
+  let pendingPrimaryHotkey = '';
+
+  hotkeyInput.addEventListener('focus', () => {
+    recordingHotkey = true;
+    waitingChordSecondKey = false;
+    pendingPrimaryHotkey = '';
+    hotkeyInput.value = 'Press combo (single) or prefix (chord)...';
+    sendToAHK('startRecording');
+  });
+
+  hotkeyInput.addEventListener('blur', () => {
+    if (recordingHotkey) {
+      recordingHotkey = false;
+      waitingChordSecondKey = false;
+      pendingPrimaryHotkey = '';
+      hotkeyInput.value = ahkToDisplay(hotkeyInput.dataset.ahkKey || '');
+    }
+    sendToAHK('stopRecording');
+  });
+
+  hotkeyInput.addEventListener('keydown', (e) => {
+    if (!recordingHotkey) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!waitingChordSecondKey) {
+      const ahk = eventToAhk(e, true);
+      if (!ahk) return;
+      pendingPrimaryHotkey = ahk;
+      hotkeyInput.dataset.ahkKey = ahk;
+      waitingChordSecondKey = true;
+      hotkeyInput.value = ahkToDisplay(ahk) + ' | press 2nd key for chord (Enter to keep single)';
+      return;
+    }
+
+    if (e.key === 'Enter' || e.key === 'Escape') {
+      recordingHotkey = false;
+      waitingChordSecondKey = false;
+      pendingPrimaryHotkey = '';
+      hotkeyInput.value = ahkToDisplay(hotkeyInput.dataset.ahkKey || '');
+      hotkeyInput.blur();
+      return;
+    }
+
+    const secondKey = eventToAhk(e, false);
+    if (!secondKey) return;
+    const chordAhk = pendingPrimaryHotkey + ',' + secondKey;
+    hotkeyInput.dataset.ahkKey = chordAhk;
+    hotkeyInput.value = ahkToDisplay(chordAhk);
+    recordingHotkey = false;
+    waitingChordSecondKey = false;
+    pendingPrimaryHotkey = '';
+    hotkeyInput.blur();
+  });
+
+  document.getElementById('btn-clear-hotkey').addEventListener('click', () => {
+    hotkeyInput.dataset.ahkKey = '';
+    hotkeyInput.value = '';
+    recordingHotkey = false;
+    waitingChordSecondKey = false;
+    pendingPrimaryHotkey = '';
+  });
+
+  // =============================================
+  // PROMPT PICKER
+  // =============================================
+  function renderPromptDropdown() {
+    promptDropdown.innerHTML = '';
+    promptActiveIdx = -1;
+    filteredPrompts.forEach((p, i) => {
+      const div = document.createElement('div');
+      div.className = 'dropdown-item';
+      let html = '<span>' + escHtml(p.name) + '</span>';
+      const tags = [];
+      if (p.provider && p.model) tags.push(p.provider + ' · ' + p.model);
+      else if (p.provider) tags.push(p.provider);
+      else if (p.model) tags.push(p.model);
+      if (p.hotkey) tags.push('HK: ' + ahkToDisplay(p.hotkey));
+      if (p.confirm) tags.push('Confirm');
+      if (p.isFile) tags.push('@file');
+      if (tags.length > 0) html += '<span class="tag">' + escHtml(tags.join(' | ')) + '</span>';
+      div.innerHTML = html;
+      div.addEventListener('mousedown', (e) => { e.preventDefault(); selectPrompt(p.name); });
+      promptDropdown.appendChild(div);
+    });
+  }
+
+  function showPromptDropdown() {
+    if (filteredPrompts.length === 0) return;
+    promptDropdown.classList.add('visible');
+  }
+
+  function hidePromptDropdown() {
+    promptDropdown.classList.remove('visible');
+    promptActiveIdx = -1;
+  }
+
+  function selectPrompt(name) {
+    filterInput.value = '';
+    hidePromptDropdown();
+    const p = allPrompts.find(x => x.name === name);
+    if (!p) return;
+
+    selectedName = name;
+    isFilePrompt = p.isFile;
+    nameInput.value = p.name;
+    providerInput.value = p.provider || '';
+    modelInput.value = p.model || '';
+    hotkeyInput.dataset.ahkKey = p.hotkey || '';
+    hotkeyInput.value = ahkToDisplay(p.hotkey || '');
+    confirmInput.checked = !!p.confirm;
+    promptText.value = p.prompt;
+    btnDelete.disabled = false;
+
+    const effectiveProvider = providerInput.value || defaultProvider;
+    sendToAHK('providerChanged', { provider: effectiveProvider });
+
+    if (p.isFile) {
+      promptText.readOnly = true;
+      promptText.classList.add('readonly');
+      fileIndicator.innerHTML = '<span class="file-badge">@file (read-only)</span>';
+    } else {
+      promptText.readOnly = false;
+      promptText.classList.remove('readonly');
+      fileIndicator.innerHTML = '';
+    }
+
+    statusEl.textContent = 'Editing: ' + name;
+  }
+
+  function filterPromptList() {
+    const typed = filterInput.value.toLowerCase();
+    filteredPrompts = typed === ''
+      ? [...allPrompts]
+      : allPrompts.filter(p => p.name.toLowerCase().includes(typed));
+    renderPromptDropdown();
+    showPromptDropdown();
+  }
+
+  filterInput.addEventListener('input', filterPromptList);
+  filterInput.addEventListener('focus', () => { filterPromptList(); showPromptDropdown(); });
+  filterInput.addEventListener('blur', () => setTimeout(hidePromptDropdown, 150));
+
+  filterInput.addEventListener('keydown', (e) => {
+    if (!promptDropdown.classList.contains('visible')) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { showPromptDropdown(); e.preventDefault(); }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      promptActiveIdx = Math.min(promptActiveIdx + 1, filteredPrompts.length - 1);
+      updateDropdownActive(promptDropdown, promptActiveIdx);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      promptActiveIdx = Math.max(promptActiveIdx - 1, 0);
+      updateDropdownActive(promptDropdown, promptActiveIdx);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (promptActiveIdx >= 0 && filteredPrompts[promptActiveIdx])
+        selectPrompt(filteredPrompts[promptActiveIdx].name);
+    } else if (e.key === 'Escape') {
+      hidePromptDropdown();
+      e.stopPropagation();
+    }
+  });
+
+  // =============================================
+  // PROVIDER + MODEL PICKER
+  // =============================================
+  providerInput.addEventListener('change', () => {
+    const effectiveProvider = providerInput.value || defaultProvider;
+    sendToAHK('providerChanged', { provider: effectiveProvider });
+  });
+
+  function renderModelDropdown() {
+    modelDropdown.innerHTML = '';
+    modelActiveIdx = -1;
+    filteredModels.forEach((m, i) => {
+      const div = document.createElement('div');
+      div.className = 'dropdown-item';
+      div.innerHTML = '<span class="model-id">' + escHtml(m.id) + '</span>'
+                    + '<span class="model-name">' + escHtml(m.name) + '</span>';
+      div.addEventListener('mousedown', (e) => { e.preventDefault(); selectModel(m.id); });
+      modelDropdown.appendChild(div);
+    });
+  }
+
+  function showModelDropdown() {
+    if (filteredModels.length === 0) return;
+    modelDropdown.classList.add('visible');
+  }
+
+  function hideModelDropdown() {
+    modelDropdown.classList.remove('visible');
+    modelActiveIdx = -1;
+  }
+
+  function selectModel(id) {
+    modelInput.value = id;
+    hideModelDropdown();
+  }
+
+  function filterModelList() {
+    const typed = modelInput.value.toLowerCase();
+    if (typed === '') {
+      filteredModels = [...allModels];
+    } else {
+      filteredModels = allModels.filter(m =>
+        String(m.id || '').toLowerCase().includes(typed) || String(m.name || '').toLowerCase().includes(typed)
+      );
+    }
+    renderModelDropdown();
+    showModelDropdown();
+  }
+
+  modelInput.addEventListener('input', filterModelList);
+  modelInput.addEventListener('focus', () => { filterModelList(); showModelDropdown(); });
+  modelInput.addEventListener('blur', () => setTimeout(hideModelDropdown, 150));
+
+  modelInput.addEventListener('keydown', (e) => {
+    if (!modelDropdown.classList.contains('visible')) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { showModelDropdown(); e.preventDefault(); }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      modelActiveIdx = Math.min(modelActiveIdx + 1, filteredModels.length - 1);
+      updateDropdownActive(modelDropdown, modelActiveIdx);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      modelActiveIdx = Math.max(modelActiveIdx - 1, 0);
+      updateDropdownActive(modelDropdown, modelActiveIdx);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (modelActiveIdx >= 0 && filteredModels[modelActiveIdx])
+        selectModel(filteredModels[modelActiveIdx].id);
+    } else if (e.key === 'Escape') {
+      hideModelDropdown();
+      e.stopPropagation();
+    }
+  });
+
+  // Clear model button
+  document.getElementById('btn-clear-model').addEventListener('click', () => {
+    modelInput.value = '';
+  });
+
+  // =============================================
+  // SHARED: update active item in any dropdown
+  // =============================================
+  function updateDropdownActive(container, idx) {
+    const items = container.querySelectorAll('.dropdown-item');
+    items.forEach((item, i) => item.classList.toggle('active', i === idx));
+    if (idx >= 0 && items[idx])
+      items[idx].scrollIntoView({ block: 'nearest' });
+  }
+
+  // =============================================
+  // BUTTONS
+  // =============================================
+  document.getElementById('btn-save').addEventListener('click', () => sendToAHK('savePrompt'));
+  document.getElementById('btn-new').addEventListener('click', () => {
+    selectedName = '';
+    isFilePrompt = false;
+    nameInput.value = '';
+    providerInput.value = '';
+    modelInput.value = '';
+    hotkeyInput.dataset.ahkKey = '';
+    hotkeyInput.value = '';
+    confirmInput.checked = false;
+    promptText.value = '';
+    promptText.readOnly = false;
+    promptText.classList.remove('readonly');
+    fileIndicator.innerHTML = '';
+    btnDelete.disabled = true;
+    sendToAHK('providerChanged', { provider: defaultProvider });
+    nameInput.focus();
+    statusEl.textContent = 'New prompt — enter a name and text';
+  });
+  document.getElementById('btn-delete').addEventListener('click', () => {
+    if (selectedName && confirm('Delete "' + selectedName + '"?'))
+      sendToAHK('deletePrompt');
+  });
+  document.getElementById('btn-close').addEventListener('click', () => sendToAHK('close'));
+
+  // =============================================
+  // KEYBOARD
+  // =============================================
+  document.addEventListener('keydown', (e) => {
+    if (recordingHotkey) return;  // Let the hotkey input handle keys while recording
+    if (e.ctrlKey && e.key === 's') {
+      e.preventDefault();
+      sendToAHK('savePrompt');
+    }
+    const anyDropdownOpen = promptDropdown.classList.contains('visible')
+                         || modelDropdown.classList.contains('visible');
+    if (e.key === 'Escape' && !anyDropdownOpen) {
+      e.preventDefault();
+      sendToAHK('close');
+    }
+  });
+
+  // =============================================
+  // READY
+  // =============================================
+  document.addEventListener('DOMContentLoaded', () => sendToAHK('ready'));
+</script>
+</body>
+</html>

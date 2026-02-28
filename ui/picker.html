@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Picker</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { border-color: rgba(255,255,255,0.25); }
+
+  .drag-bar h2 {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+  }
+
+  /* Search input */
+  .search-row {
+    flex-shrink: 0;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-input);
+  }
+
+  .search-icon {
+    color: var(--text-muted);
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  #filter-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    caret-color: var(--accent);
+    user-select: text;
+  }
+
+  #filter-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  /* Prompt list */
+  #prompt-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+
+  .prompt-item {
+    padding: 7px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .prompt-item:hover {
+    background: var(--bg-hover);
+  }
+
+  .prompt-item.active {
+    background: var(--bg-active);
+    border-left-color: var(--accent);
+    color: #FFFFFF;
+  }
+
+  .prompt-item .name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .prompt-item kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-secondary);
+    background: transparent;
+    flex-shrink: 0;
+  }
+
+  .prompt-item .model-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  .empty-state {
+    padding: 20px 14px;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  /* Status bar */
+  #status {
+    flex-shrink: 0;
+    padding: 4px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--border);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #555; }
+</style>
+</head>
+<body>
+
+  <div class="drag-bar">
+    <div class="grip">
+      <span></span><span></span><span></span>
+      <span></span><span></span><span></span>
+    </div>
+    <h2>Prompt Picker</h2>
+  </div>
+
+  <div class="search-row">
+    <span class="search-icon">⌕</span>
+    <input type="text" id="filter-input" placeholder="Type to filter prompts..." autocomplete="off" spellcheck="false">
+  </div>
+
+  <div id="prompt-list"></div>
+
+  <div id="status">↑↓ navigate &nbsp;·&nbsp; Enter select &nbsp;·&nbsp; Esc close</div>
+
+<script src="ahk-bridge.js"></script>
+<script>
+  // =============================================
+  // STATE
+  // =============================================
+  let allCommands = [];
+  let filteredCommands = [];
+  let activeIdx = 0;
+
+  // =============================================
+  // DOM REFS
+  // =============================================
+  const filterInput = document.getElementById('filter-input');
+  const promptList = document.getElementById('prompt-list');
+  const statusEl = document.getElementById('status');
+
+  // =============================================
+  // AHK → JS
+  // =============================================
+  function setCommands(data) {
+    if (typeof data === 'string') data = JSON.parse(data);
+    allCommands = data;
+    applyFilter();
+  }
+
+  // Called by AHK on every Show to reset state and focus
+  function resetAndFocus() {
+    filterInput.value = '';
+    applyFilter();
+    ensureInputFocus();
+  }
+
+  function ensureInputFocus(maxRetries = 12, delayMs = 40) {
+    let tries = 0;
+    const tick = () => {
+      if (document.activeElement !== filterInput) {
+        filterInput.focus();
+        filterInput.select();
+      }
+      tries += 1;
+      if (document.activeElement !== filterInput && tries < maxRetries)
+        setTimeout(tick, delayMs);
+    };
+    tick();
+  }
+
+  // Keep typing/navigation ready after OS focus/visibility changes.
+  window.addEventListener('focus', () => ensureInputFocus());
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) ensureInputFocus();
+  });
+
+  // =============================================
+  // HELPERS
+  // =============================================
+  function ahkToDisplay(ahk) {
+    if (!ahk) return '';
+    if (ahk.includes(',')) {
+      const parts = ahk.split(',');
+      const prefix = ahkToDisplaySingle(parts[0] || '');
+      const suffix = ahkToDisplaySingle(parts.slice(1).join(',') || '');
+      return prefix && suffix ? (prefix + ' -> ' + suffix) : (prefix || suffix);
+    }
+    return ahkToDisplaySingle(ahk);
+  }
+
+  function ahkToDisplaySingle(ahk) {
+    if (!ahk) return '';
+    let display = '';
+    let rest = ahk;
+    if (rest.includes('^')) { display += 'Ctrl+'; rest = rest.replace('^', ''); }
+    if (rest.includes('!')) { display += 'Alt+'; rest = rest.replace('!', ''); }
+    if (rest.includes('+')) { display += 'Shift+'; rest = rest.replace('+', ''); }
+    if (rest.includes('#')) { display += 'Win+'; rest = rest.replace('#', ''); }
+    if (rest.length === 1) rest = rest.toUpperCase();
+    return display + rest;
+  }
+
+  // =============================================
+  // FILTER + RENDER
+  // =============================================
+  function applyFilter() {
+    const q = filterInput.value.toLowerCase();
+    filteredCommands = q === ''
+      ? [...allCommands]
+      : allCommands.filter(c => c.name.toLowerCase().includes(q));
+    activeIdx = filteredCommands.length > 0 ? 0 : -1;
+    render();
+  }
+
+  function render() {
+    promptList.innerHTML = '';
+    if (filteredCommands.length === 0) {
+      promptList.innerHTML = '<div class="empty-state">No prompts match</div>';
+      return;
+    }
+    filteredCommands.forEach((cmd, i) => {
+      const div = document.createElement('div');
+      div.className = 'prompt-item' + (i === activeIdx ? ' active' : '');
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'name';
+      nameSpan.textContent = cmd.name;
+      div.appendChild(nameSpan);
+
+      if (cmd.hotkey) {
+        const kbd = document.createElement('kbd');
+        kbd.textContent = ahkToDisplay(cmd.hotkey);
+        div.appendChild(kbd);
+      }
+
+      if (cmd.model) {
+        const modelSpan = document.createElement('span');
+        modelSpan.className = 'model-badge';
+        modelSpan.textContent = cmd.model;
+        div.appendChild(modelSpan);
+      }
+
+      div.addEventListener('mousedown', (e) => { e.preventDefault(); pick(i); });
+      promptList.appendChild(div);
+    });
+    scrollActiveIntoView();
+  }
+
+  function scrollActiveIntoView() {
+    const items = promptList.querySelectorAll('.prompt-item');
+    if (activeIdx >= 0 && items[activeIdx])
+      items[activeIdx].scrollIntoView({ block: 'nearest' });
+  }
+
+  // =============================================
+  // PICK
+  // =============================================
+  function pick(idx) {
+    const cmd = filteredCommands[idx];
+    if (!cmd) return;
+    postToAHK({ action: 'pick', name: cmd.name });
+  }
+
+  // =============================================
+  // KEYBOARD
+  // =============================================
+  filterInput.addEventListener('input', applyFilter);
+
+  document.addEventListener('keydown', (e) => {
+    // If focus drifted away from the input, recover it and keep the first typed char.
+    if (document.activeElement !== filterInput
+      && !e.ctrlKey && !e.metaKey && !e.altKey
+      && e.key && e.key.length === 1) {
+      e.preventDefault();
+      filterInput.focus();
+      filterInput.value += e.key;
+      applyFilter();
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (filteredCommands.length === 0) break;
+        activeIdx = Math.min(activeIdx + 1, filteredCommands.length - 1);
+        render();
+        break;
+
+      case 'ArrowUp':
+        e.preventDefault();
+        if (filteredCommands.length === 0) break;
+        activeIdx = Math.max(activeIdx - 1, 0);
+        render();
+        break;
+
+      case 'Enter':
+        e.preventDefault();
+        if (activeIdx >= 0) pick(activeIdx);
+        break;
+
+      case 'Escape':
+        e.preventDefault();
+        postToAHK({ action: 'close' });
+        break;
+    }
+  });
+
+  // =============================================
+  // READY
+  // =============================================
+  document.addEventListener('DOMContentLoaded', () => {
+    postToAHK({ action: 'ready' });
+  });
+</script>
+</body>
+</html>
