@@ -43,6 +43,25 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
+body.window-resizable {
+  position: relative;
+}
+
+body.window-resizable::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  opacity: 0.55;
+  background:
+    linear-gradient(135deg, transparent 0 52%, #8b8b8b 52% 60%, transparent 60% 100%),
+    linear-gradient(135deg, transparent 0 64%, #8b8b8b 64% 72%, transparent 72% 100%),
+    linear-gradient(135deg, transparent 0 76%, #8b8b8b 76% 84%, transparent 84% 100%);
+}
+
 /* --- Titlebar (full — with window control buttons) --- */
 .titlebar {
   -webkit-app-region: drag;
@@ -139,3 +158,38 @@ body {
 ::-webkit-scrollbar-track        { background: var(--bg-primary); }
 ::-webkit-scrollbar-thumb        { background: #444; border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover  { background: #555; }
+
+/* --- Reusable window layout --- */
+.window-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.window-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.window-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  background: linear-gradient(180deg, rgba(30, 30, 30, 0) 0%, rgba(30, 30, 30, 0.94) 20%);
+}
+
+/* --- Resizable textareas --- */
+textarea[id].ui-resizable-textarea,
+textarea[id] {
+  resize: vertical;
+  min-height: 72px;
+}
+
+textarea[id]::-webkit-resizer {
+  background:
+    linear-gradient(135deg, transparent 0 50%, #7a7a7a 50% 58%, transparent 58% 100%),
+    linear-gradient(135deg, transparent 0 66%, #7a7a7a 66% 74%, transparent 74% 100%);
+}

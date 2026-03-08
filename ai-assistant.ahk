@@ -143,20 +143,20 @@ if FileExist(iconPath)
 
 tray := A_TrayMenu
 tray.Delete()
-mainWindowTrayLabel := "Main window`tAlt+Shift+W"
-tray.Add(mainWindowTrayLabel, (*) => ShowMainWindow())
+promptChatTrayLabel := "Prompt Chat`tAlt+Shift+W"
+tray.Add(promptChatTrayLabel, (*) => ShowPromptChat())
 tray.Add("Prompt editor", (*) => ShowPromptEditor())
 tray.Add("Settings", (*) => ShowSettings())
 tray.Add()
 tray.Add("Reload", (*) => Reload())
 tray.Add("Exit", (*) => ExitApp())
-tray.Default := mainWindowTrayLabel
+tray.Default := promptChatTrayLabel
 
 ; Tray menu item icons (shell32/imageres DLL icons — indices are 1-based)
 shell32 := A_WinDir . "\System32\shell32.dll"
 imgres  := A_WinDir . "\System32\imageres.dll"
 if FileExist(iconPath)
-    try tray.SetIcon(mainWindowTrayLabel, iconPath, 1)
+    try tray.SetIcon(promptChatTrayLabel, iconPath, 1)
 try tray.SetIcon("Prompt editor", shell32, 272)   ; notepad/edit
 try tray.SetIcon("Settings",      shell32, 71)    ; gear / properties
 try tray.SetIcon("Reload",        imgres,  228)   ; circular arrows / refresh
@@ -170,20 +170,21 @@ OnMessage(0x0084, WM_NCHITTEST_Handler)
 ; ============================================================
 global HOTKEY_MAP := Map()  ; actionId → ahkKey (currently registered)
 global WINDOW_FOCUS_JOBS := Map()
+global RESIZABLE_WINDOW_HWNDS := Map()
 
 ; Action ID → callback function
 HOTKEY_ACTIONS := Map(
-    "mainWindow",   (*) => ShowMainWindow(),
-    "goToCommand",  (*) => GoToCommand(),
+    "promptChat",   (*) => ShowPromptChat(),
     "promptPicker", (*) => ShowPickerWindow(),
+    "iterativePromptPicker", (*) => ShowPickerWindow("iterative"),
     "reload",       (*) => Reload()
 )
 
 ; Human-readable labels for the settings UI
 HOTKEY_LABELS := Map(
-    "mainWindow",   "Main window",
-    "goToCommand",  "Go to Command",
+    "promptChat",   "Prompt Chat",
     "promptPicker", "Prompt Picker",
+    "iterativePromptPicker", "Prompt Chat Picker",
     "reload",       "Reload"
 )
 
@@ -249,160 +250,6 @@ ResumePromptHotkeys() {
 
 RegisterHotkeys()
 
-; ============================================================
-; GO TO COMMAND — opens Main window and focuses command picker
-; ============================================================
-GoToCommand() {
-    global wvGui, wvReady
-    ShowMainWindow()
-    if (wvReady)
-        wvGui.ExecuteScriptAsync("focusCommands()")
-}
-
-; ============================================================
-; WEBVIEW MAIN WINDOW (Alt+Shift+W)
-; ============================================================
-global wvGui := ""
-global wvReady := false
-
-InitMainWindow() {
-    global wvGui
-    ; Pre-create WebView GUI hidden so first Show is instant
-    dllPath := A_ScriptDir "\lib\" (A_PtrSize * 8) "bit\WebView2Loader.dll"
-    wvGui := WebViewGui("+AlwaysOnTop +Resize +MinSize400x400 -Caption", "AI Assistant",, {DllPath: dllPath})
-    wvGui.OnEvent("Close", MainWindowClose)
-    if (A_IsCompiled)
-        wvGui.Control.BrowseFolder(A_ScriptDir)
-    wvGui.Control.wv.add_WebMessageReceived(WebMessageHandler)
-    wvGui.Navigate("ui/index.html")
-}
-
-ShowMainWindow() {
-    global wvGui, wvReady
-
-    if !IsObject(wvGui)
-        InitMainWindow()
-
-    GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
-    savedW := ReadSetting("main_w")
-    savedH := ReadSetting("main_h")
-    w := (savedW != "" && Integer(savedW) >= 400) ? savedW : 584
-    h := (savedH != "" && Integer(savedH) >= 400) ? savedH : 600
-    x := ml + (mr - ml - w) // 2
-    y := mt + (mb - mt - h) // 3
-    wvGui.Show("x" . x . " y" . y . " w" . w . " h" . h)
-    if (wvReady)
-        SendClipboardToUI()
-    ScheduleWindowFocus("main", wvGui, wvReady ? "focusPrompt()" : "", 1800)
-}
-
-; ============================================================
-; JS → AHK MESSAGE HANDLER (main window)
-; ============================================================
-WebMessageHandler(wv, msg) {
-    try data := msg.WebMessageAsJson
-    catch
-        return
-
-    ; Parse action — only extract the action name here, defer all work
-    if !RegExMatch(data, '"action"\s*:\s*"(\w+)"', &m)
-        return
-
-    ; IMPORTANT: Never call ExecuteScript (sync) inside this callback — it deadlocks.
-    ; Defer everything via SetTimer so it runs outside the WebView callback.
-    SetTimer(HandleAction.Bind(m[1]), -1)
-}
-
-HandleAction(action) {
-    global wvGui, wvReady, API_PROVIDER, API_MODEL, COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS
-
-    switch action {
-    case "ready":
-        wvReady := true
-        SendClipboardToUI()
-        SendCommandsToUI()
-        SendModelToUI()
-        SendCommandHotkeyToUI()
-        ScheduleWindowFocus("main", wvGui, "focusPrompt()", 1200)
-
-    case "submit":
-        promptText := wvGui.ExecuteScript("document.getElementById('prompt').value")
-        clipText := wvGui.ExecuteScript("document.getElementById('clipboard-preview').value")
-        cmdName := Trim(wvGui.ExecuteScript("document.getElementById('command-input').value"))
-        modelOverride := ""
-        providerOverride := ""
-        if (cmdName != "" && COMMAND_MODELS.Has(cmdName))
-            modelOverride := COMMAND_MODELS[cmdName]
-        if (cmdName != "" && COMMAND_PROVIDERS.Has(cmdName))
-            providerOverride := COMMAND_PROVIDERS[cmdName]
-        ProcessPrompt(promptText, clipText, modelOverride, providerOverride)
-
-    case "commandSelected":
-        cmdName := Trim(wvGui.ExecuteScript("document.getElementById('command-input').value"))
-        if COMMAND_PROMPTS.Has(cmdName) {
-            promptText := COMMAND_PROMPTS[cmdName]
-            wvGui.ExecuteScriptAsync('setPromptText("' . EscJson(promptText) . '")')
-        }
-        ; Show command override (provider/model) when present, otherwise show app default
-        if (cmdName != "" && (COMMAND_MODELS.Has(cmdName) || COMMAND_PROVIDERS.Has(cmdName))) {
-            displayProvider := COMMAND_PROVIDERS.Has(cmdName) ? NormalizeProvider(COMMAND_PROVIDERS[cmdName]) : API_PROVIDER
-            displayModel := COMMAND_MODELS.Has(cmdName) ? COMMAND_MODELS[cmdName] : LoadSelectedModel(displayProvider)
-            wvGui.ExecuteScriptAsync('setModelDisplay("' . EscJson(ProviderDisplayName(displayProvider) . " · " . displayModel) . '")')
-        } else
-            SendModelToUI()
-
-    case "copy":
-        resultText := wvGui.ExecuteScript("document.getElementById('result').value")
-        if (Trim(resultText) != "") {
-            A_Clipboard := resultText
-            ClipWait(2)
-            wvGui.ExecuteScriptAsync('setStatus("Copied to clipboard!")')
-        }
-
-    case "clear":
-        wvGui.ExecuteScriptAsync("clearFields()")
-
-    case "minimize":
-        StopWindowFocus("main")
-        wvGui.Minimize()
-
-    case "hide":
-        StopWindowFocus("main")
-        wvGui.Hide()
-
-    case "settings":
-        ShowSettings()
-
-    case "promptEditor":
-        ShowPromptEditor()
-    }
-}
-
-SendClipboardToUI() {
-    global wvGui
-    clipText := A_Clipboard
-    escaped := EscJson(clipText)
-    wvGui.ExecuteScriptAsync('setClipboardPreview("' . escaped . '")')
-}
-
-SendModelToUI() {
-    global wvGui, API_PROVIDER, API_MODEL
-    wvGui.ExecuteScriptAsync('setModelDisplay("' . EscJson(ProviderDisplayName(API_PROVIDER) . " · " . API_MODEL) . '")')
-}
-
-SendCommandsToUI() {
-    global wvGui
-    wvGui.ExecuteScriptAsync("setCommands(" . BuildCommandsJson() . ")")
-}
-
-SendCommandHotkeyToUI() {
-    global wvGui, wvReady, HOTKEY_MAP
-    if !IsObject(wvGui) || !wvReady
-        return
-    ahkKey := HOTKEY_MAP.Has("goToCommand") ? HOTKEY_MAP["goToCommand"] : ""
-    wvGui.ExecuteScriptAsync('setCommandHotkey("' . EscJson(ahkKey) . '")')
-}
-
 BuildCommandsJson() {
     global ALL_COMMAND_NAMES, COMMAND_MODELS, COMMAND_HOTKEYS
     json := "["
@@ -415,51 +262,6 @@ BuildCommandsJson() {
     }
     json .= "]"
     return json
-}
-
-ProcessPrompt(promptText, clipText, modelOverride := "", providerOverride := "") {
-    global wvGui, API_PROVIDER, API_MODEL
-
-    if (Trim(promptText) = "") {
-        wvGui.ExecuteScriptAsync('setStatus("Write a prompt or select a command")')
-        return
-    }
-    if (Trim(clipText) = "") {
-        wvGui.ExecuteScriptAsync('setStatus("Clipboard is empty — copy some text first")')
-        return
-    }
-
-    provider := (Trim(providerOverride) != "") ? NormalizeProvider(providerOverride) : API_PROVIDER
-    apiKey := GetProviderApiKey(provider)
-    if (apiKey = "") {
-        wvGui.ExecuteScriptAsync('setStatus("Missing API key for ' . EscJson(ProviderDisplayName(provider)) . '")')
-        return
-    }
-
-    ; Use command-specific model or provider default
-    if (Trim(modelOverride) != "")
-        useModel := modelOverride
-    else if (provider = API_PROVIDER)
-        useModel := API_MODEL
-    else
-        useModel := LoadSelectedModel(provider)
-
-    wvGui.ExecuteScriptAsync('setResult("")')
-    wvGui.ExecuteScriptAsync('setStatus("Processing with ' . EscJson(ProviderDisplayName(provider) . " · " . useModel) . '...")')
-
-    userMessage := promptText . "`n`n---`n`n" . clipText
-    lang := DetectLanguage(clipText)
-    sysPrompt := GetSystemPrompt("fix", lang)
-        . "`n`nThe user will give you a prompt/instruction followed by the text to work with (separated by ---). Follow the prompt instructions. Return ONLY the result, no explanations."
-
-    try {
-        result := CallProvider(userMessage, sysPrompt, provider, apiKey, useModel)
-        wvGui.ExecuteScriptAsync('setResult("' . EscJson(result) . '")')
-        wvGui.ExecuteScriptAsync('setStatus("Done — ' . StrLen(result) . ' chars (' . EscJson(ProviderDisplayName(provider) . " · " . useModel) . ')")')
-    } catch as e {
-        wvGui.ExecuteScriptAsync('setResult("Error: ' . EscJson(e.Message) . '")')
-        wvGui.ExecuteScriptAsync('setStatus("Error")')
-    }
 }
 
 ; ============================================================
@@ -483,6 +285,7 @@ ShowSettings() {
 
     dllPath := A_ScriptDir "\lib\" (A_PtrSize * 8) "bit\WebView2Loader.dll"
     settingsGui := WebViewGui("+AlwaysOnTop +Resize +MinSize300x200 -Caption", "Settings",, {DllPath: dllPath})
+    RegisterResizableWindow(settingsGui)
     settingsGui.OnEvent("Close", SaveSettingsSize)
     if (A_IsCompiled)
         settingsGui.Control.BrowseFolder(A_ScriptDir)
@@ -492,10 +295,7 @@ ShowSettings() {
 
     settingsGui.Navigate("ui/settings.html")
     ; Restore saved size or use default (min 300x200)
-    savedW := ReadSetting("settings_w")
-    savedH := ReadSetting("settings_h")
-    w := (savedW != "" && Integer(savedW) >= 300) ? savedW : 450
-    h := (savedH != "" && Integer(savedH) >= 200) ? savedH : 400
+    GetPersistedWindowSize("settings", 300, 200, 450, 400, &w, &h)
     GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
     x := ml + (mr - ml - w) // 2
     y := mt + (mb - mt - h) // 3
@@ -507,9 +307,7 @@ SaveSettingsSize(*) {
     global settingsGui
     StopWindowFocus("settings")
     try {
-        settingsGui.GetPos(,, &w, &h)
-        if (w > 0 && h > 0)
-            SaveSettingBatch(Map("settings_w", w, "settings_h", h))
+        PersistWindowSize(settingsGui, "settings")
         settingsGui.Hide()
     }
     ResumeDynamicHotkeys()
@@ -542,7 +340,7 @@ ExtractJsonString(rawJson, key) {
 }
 
 HandleSettingsAction(action, rawJson) {
-    global settingsGui, settingsReady, API_PROVIDER, API_MODEL, API_KEYS, wvGui, wvReady, editorGui, editorReady
+    global settingsGui, settingsReady, API_PROVIDER, API_MODEL, API_KEYS, editorGui, editorReady
 
     switch action {
     case "ready":
@@ -562,9 +360,6 @@ HandleSettingsAction(action, rawJson) {
         if (Trim(selectedId) != "") {
             SaveSelectedModel(selectedId, API_PROVIDER)
             settingsGui.ExecuteScriptAsync('setStatus("Model saved for ' . EscJson(ProviderDisplayName(API_PROVIDER)) . ': ' . EscJson(selectedId) . '")')
-            ; Update main window if open
-            if IsObject(wvGui) && wvReady
-                SendModelToUI()
         }
 
     case "providerSelected":
@@ -576,8 +371,6 @@ HandleSettingsAction(action, rawJson) {
             settingsGui.ExecuteScriptAsync('setCurrentModel("' . EscJson(API_MODEL) . '")')
             FetchAndSendModels()
             settingsGui.ExecuteScriptAsync('setStatus("Provider saved: ' . EscJson(ProviderDisplayName(API_PROVIDER)) . '")')
-            if IsObject(wvGui) && wvReady
-                SendModelToUI()
             if IsObject(editorGui) && editorReady
                 SendModelsToEditor()
         }
@@ -603,8 +396,6 @@ HandleSettingsAction(action, rawJson) {
         else
             settingsGui.ExecuteScriptAsync('setStatus("Saved, but no API keys configured")')
 
-        if IsObject(wvGui) && wvReady
-            SendModelToUI()
         if IsObject(editorGui) && editorReady
             SendModelsToEditor()
 
@@ -617,8 +408,6 @@ HandleSettingsAction(action, rawJson) {
             try {
                 RegisterSingleHotkey(actionId, ahkKey)
                 settingsGui.ExecuteScriptAsync('setStatus("Hotkey saved")')
-                if (actionId = "goToCommand")
-                    SendCommandHotkeyToUI()
             } catch as e {
                 settingsGui.ExecuteScriptAsync('setStatus("Error: ' . EscJson(e.Message) . '")')
             }
@@ -647,9 +436,7 @@ HandleSettingsAction(action, rawJson) {
     case "close":
         StopWindowFocus("settings")
         try {
-            settingsGui.GetPos(,, &w, &h)
-            if (w > 0 && h > 0)
-                SaveSettingBatch(Map("settings_w", w, "settings_h", h))
+            PersistWindowSize(settingsGui, "settings")
         }
         settingsGui.Hide()
         ResumeDynamicHotkeys()
@@ -733,11 +520,13 @@ SendAutostartToSettings() {
 global pickerGui := ""
 global pickerReady := false
 global pickerPrevWin := 0
+global pickerMode := "silent"
 
 InitPickerWindow() {
     global pickerGui
     dllPath := A_ScriptDir "\lib\" (A_PtrSize * 8) "bit\WebView2Loader.dll"
-    pickerGui := WebViewGui("+AlwaysOnTop -Caption", "Prompt Picker",, {DllPath: dllPath})
+    pickerGui := WebViewGui("+AlwaysOnTop +Resize +MinSize320x220 -Caption", "Prompt Picker",, {DllPath: dllPath})
+    RegisterResizableWindow(pickerGui)
     pickerGui.OnEvent("Close", PickerWindowClose)
     if (A_IsCompiled)
         pickerGui.Control.BrowseFolder(A_ScriptDir)
@@ -745,19 +534,20 @@ InitPickerWindow() {
     pickerGui.Navigate("ui/picker.html")
 }
 
-ShowPickerWindow() {
-    global pickerGui, pickerReady, pickerPrevWin
+ShowPickerWindow(mode := "silent") {
+    global pickerGui, pickerReady, pickerPrevWin, pickerMode
 
     if !IsObject(pickerGui)
         InitPickerWindow()
+
+    pickerMode := mode
 
     ; Remember where focus was so we can restore it on close/pick
     pickerPrevWin := WinExist("A")
 
     ; Center on active monitor, slightly above middle
     GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
-    w := 420
-    h := 320
+    GetPersistedWindowSize("picker", 320, 220, 420, 320, &w, &h)
     x := ml + (mr - ml - w) // 2
     y := mt + (mb - mt - h) // 3
     pickerGui.Show("x" . x . " y" . y . " w" . w . " h" . h)
@@ -774,7 +564,7 @@ PickerMessageHandler(wv, msg) {
 }
 
 HandlePickerAction(action, rawJson) {
-    global pickerGui, pickerReady, pickerPrevWin
+    global pickerGui, pickerReady, pickerPrevWin, pickerMode
 
     switch action {
     case "ready":
@@ -787,23 +577,32 @@ HandlePickerAction(action, rawJson) {
         if RegExMatch(rawJson, '"name"\s*:\s*"((?:[^"\\]|\\.)*)"', &mName)
             promptName := StrReplace(mName[1], '\"', '"')
         StopWindowFocus("picker")
+        PersistWindowSize(pickerGui, "picker")
         pickerGui.Hide()
         if (pickerPrevWin)
             WinActivate("ahk_id " . pickerPrevWin)
-        if (promptName != "")
-            SetTimer(ExecutePromptSilently.Bind(promptName), -100)
+        if (promptName != "") {
+            if (pickerMode = "iterative")
+                SetTimer(OpenIterativePromptFlow.Bind(promptName), -100)
+            else
+                SetTimer(ExecutePromptSilently.Bind(promptName), -100)
+        }
+        pickerMode := "silent"
 
     case "close":
         StopWindowFocus("picker")
+        PersistWindowSize(pickerGui, "picker")
         pickerGui.Hide()
         if (pickerPrevWin)
             WinActivate("ahk_id " . pickerPrevWin)
+        pickerMode := "silent"
     }
 }
 
 PickerWindowClose(*) {
     global pickerGui
     StopWindowFocus("picker")
+    PersistWindowSize(pickerGui, "picker")
     pickerGui.Hide()
     return 1
 }
@@ -813,6 +612,303 @@ SendCommandsToPickerUI() {
     if !IsObject(pickerGui) || !pickerReady
         return
     pickerGui.ExecuteScriptAsync("setCommands(" . BuildCommandsJson() . ")")
+}
+
+; ============================================================
+; ITERATIVE WORKSPACE WINDOW
+; ============================================================
+global iterativeGui := ""
+global iterativeReady := false
+global iterativeTargetWin := 0
+global iterativeSessionJson := ""
+global iterativePendingSession := false
+
+ShowPromptChat() {
+    global iterativeSessionJson, iterativePendingSession
+    if (iterativeSessionJson = "") {
+        iterativeSessionJson := BuildBlankPromptChatSessionJson()
+        iterativePendingSession := true
+    }
+    ShowIterativeWindow()
+}
+
+OpenIterativePromptFlow(promptName, *) {
+    global COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, API_PROVIDER, API_MODEL
+    global iterativeTargetWin, iterativeSessionJson, iterativePendingSession
+
+    if !COMMAND_PROMPTS.Has(promptName) {
+        ShowTip("Prompt not found: " . promptName, 3000)
+        return
+    }
+
+    ShowTip(promptName . " - preparando Prompt Chat...", 12000)
+
+    targetWin := WinExist("A")
+    savedClip := ClipboardAll()
+    savedText := A_Clipboard
+    A_Clipboard := ""
+
+    Send("^c")
+    hasSelection := ClipWait(0.25)
+    if (hasSelection && Trim(A_Clipboard) != "")
+        inputText := A_Clipboard
+    else
+        inputText := savedText
+
+    A_Clipboard := savedClip
+
+    if (Trim(inputText) = "") {
+        ShowTip("No text to process", 2500)
+        return
+    }
+
+    promptText := COMMAND_PROMPTS[promptName]
+    providerOverride := COMMAND_PROVIDERS.Has(promptName) ? COMMAND_PROVIDERS[promptName] : ""
+    provider := (Trim(providerOverride) != "") ? NormalizeProvider(providerOverride) : API_PROVIDER
+    useModel := COMMAND_MODELS.Has(promptName) ? COMMAND_MODELS[promptName]
+        : (provider = API_PROVIDER ? API_MODEL : LoadSelectedModel(provider))
+    apiKey := GetProviderApiKey(provider)
+    if (apiKey = "") {
+        ShowTip("Missing API key for " . ProviderDisplayName(provider), 4000)
+        return
+    }
+
+    runLabel := ProviderDisplayName(provider) . " · " . useModel
+    ShowTip(promptName . " - modelo procesando (" . runLabel . ")...", 30000)
+
+    try {
+        lang := DetectLanguage(inputText)
+        sysPrompt := GetSystemPrompt("fix", lang)
+            . "`n`nThe user will give you a prompt/instruction followed by the text to work with (separated by ---). Follow the prompt instructions. Return ONLY the result, no explanations."
+        userMessage := promptText . "`n`n---`n`n" . inputText
+        result := CallProvider(userMessage, sysPrompt, provider, apiKey, useModel)
+
+        iterativeTargetWin := targetWin
+        iterativeSessionJson := BuildIterativeSessionJson(promptName, inputText, promptText, result, provider, useModel)
+        iterativePendingSession := true
+        ShowIterativeWindow()
+        ShowTip("Prompt Chat listo (" . runLabel . ")", 2000)
+    } catch as e {
+        ShowTip("Error: " . e.Message, 4000)
+    }
+}
+
+InitIterativeWindow() {
+    global iterativeGui
+
+    dllPath := A_ScriptDir "\lib\" (A_PtrSize * 8) "bit\WebView2Loader.dll"
+    iterativeGui := WebViewGui("+AlwaysOnTop +Resize +MinSize760x520 -Caption", "Prompt Chat",, {DllPath: dllPath})
+    RegisterResizableWindow(iterativeGui)
+    iterativeGui.OnEvent("Close", IterativeWindowClose)
+    if (A_IsCompiled)
+        iterativeGui.Control.BrowseFolder(A_ScriptDir)
+    iterativeGui.Control.wv.add_WebMessageReceived(IterativeMessageHandler)
+    iterativeGui.Navigate("ui/iterative.html")
+}
+
+ShowIterativeWindow() {
+    global iterativeGui, iterativeReady, iterativePendingSession
+
+    if !IsObject(iterativeGui)
+        InitIterativeWindow()
+
+    GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
+    GetPersistedWindowSize("iterative", 760, 520, 1040, 760, &w, &h)
+    x := ml + (mr - ml - w) // 2
+    y := mt + (mb - mt - h) // 3
+    iterativeGui.Show("x" . x . " y" . y . " w" . w . " h" . h)
+    if (iterativeReady && iterativePendingSession)
+        SendIterativeStateToUI()
+    ScheduleWindowFocus("iterative", iterativeGui, iterativeReady ? "focusComposer()" : "", 1600)
+}
+
+IterativeWindowClose(*) {
+    global iterativeGui
+    StopWindowFocus("iterative")
+    PersistWindowSize(iterativeGui, "iterative")
+    iterativeGui.Hide()
+    return 1
+}
+
+IterativeMessageHandler(wv, msg) {
+    try data := msg.WebMessageAsJson
+    catch
+        return
+    if !RegExMatch(data, '"action"\s*:\s*"(\w+)"', &m)
+        return
+    SetTimer(HandleIterativeAction.Bind(m[1], data), -1)
+}
+
+HandleIterativeAction(action, rawJson := "") {
+    global iterativeGui, iterativeReady, iterativeTargetWin
+    global COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, API_PROVIDER, API_MODEL
+
+    switch action {
+    case "ready":
+        iterativeReady := true
+        SendIterativeStateToUI()
+        ScheduleWindowFocus("iterative", iterativeGui, "focusComposer()", 1000)
+
+    case "send":
+        latestMessage := iterativeGui.ExecuteScript("window.__promptChatPendingMessage || ''")
+        transcript := iterativeGui.ExecuteScript("window.__promptChatPendingTranscript || ''")
+        provider := NormalizeProvider(iterativeGui.ExecuteScript("window.__promptChatPendingProvider || ''"))
+        if (Trim(provider) = "")
+            provider := API_PROVIDER
+        model := iterativeGui.ExecuteScript("window.__promptChatPendingModel || ''")
+
+        if (Trim(latestMessage) = "") {
+            iterativeGui.ExecuteScriptAsync('setStatus("Message cannot be empty")')
+            return
+        }
+        if (Trim(transcript) = "") {
+            iterativeGui.ExecuteScriptAsync('setStatus("Conversation payload is empty")')
+            return
+        }
+
+        apiKey := GetProviderApiKey(provider)
+        if (apiKey = "") {
+            iterativeGui.ExecuteScriptAsync('setStatus("Missing API key for ' . EscJson(ProviderDisplayName(provider)) . '")')
+            return
+        }
+        if (Trim(model) = "")
+            model := (provider = API_PROVIDER ? API_MODEL : LoadSelectedModel(provider))
+
+        iterativeGui.ExecuteScriptAsync('setStatus("Processing with ' . EscJson(ProviderDisplayName(provider) . " · " . model) . '...")')
+        try {
+            lang := DetectLanguage(transcript)
+            sysPrompt := GetSystemPrompt("fix", lang)
+                . "`n`nYou are continuing a chat conversation."
+                . "`nThe user message contains structured context with labels like ORIGINAL TEXT, CONVERSATION, User, and Assistant."
+                . "`nThose labels are metadata for you, not text to rewrite or repeat."
+                . "`nAnswer only the latest user turn."
+                . "`nDo not quote, summarize, or reproduce the full transcript unless the user explicitly asks for that."
+                . "`nDo not include labels like ORIGINAL TEXT, CONVERSATION, User, or Assistant in your reply."
+                . "`nReturn only the assistant reply text."
+            userMessage := "Use the transcript below only as conversation context.`n`n"
+                . "Reply to the latest user message only.`n`n"
+                . "=== TRANSCRIPT START ===`n"
+                . transcript
+                . "`n=== TRANSCRIPT END ==="
+            result := CallProvider(userMessage, sysPrompt, provider, apiKey, model)
+            iterativeGui.ExecuteScriptAsync("onAssistantReply(" . BuildIterativeAssistantReplyJson(result, provider, model) . ")")
+            iterativeGui.ExecuteScriptAsync("clearPendingSendPayload()")
+        } catch as e {
+            iterativeGui.ExecuteScriptAsync('setStatus("Error: ' . EscJson(e.Message) . '")')
+        }
+
+    case "copyOutput":
+        outText := ExtractJsonString(rawJson, "text")
+        A_Clipboard := outText
+        iterativeGui.ExecuteScriptAsync('setStatus("Output copied to clipboard")')
+
+    case "replaceSelection":
+        outText := ExtractJsonString(rawJson, "text")
+        if (Trim(outText) = "") {
+            iterativeGui.ExecuteScriptAsync('setStatus("Nothing to replace")')
+            return
+        }
+        if !iterativeTargetWin {
+            A_Clipboard := outText
+            iterativeGui.ExecuteScriptAsync('setStatus("No target window found — output copied to clipboard")')
+            return
+        }
+
+        savedClip := ClipboardAll()
+        try {
+            A_Clipboard := outText
+            ClipWait(0.4)
+            WinActivate("ahk_id " . iterativeTargetWin)
+            Sleep(80)
+            Send("^v")
+            SetTimer((*) => (A_Clipboard := savedClip), -300)
+            iterativeGui.ExecuteScriptAsync('setStatus("Replaced selection in target window")')
+        } catch {
+            A_Clipboard := savedClip
+            iterativeGui.ExecuteScriptAsync('setStatus("Could not replace in target window — clipboard restored")')
+        }
+
+    case "minimize":
+        StopWindowFocus("iterative")
+        iterativeGui.Minimize()
+
+    case "close":
+        StopWindowFocus("iterative")
+        PersistWindowSize(iterativeGui, "iterative")
+        iterativeGui.Hide()
+    }
+}
+
+SendIterativeStateToUI() {
+    global iterativeGui, iterativeReady, iterativeSessionJson, iterativePendingSession
+    if !IsObject(iterativeGui) || !iterativeReady
+        return
+    iterativeGui.ExecuteScriptAsync("setPromptCatalog(" . BuildPromptCatalogJson() . ")")
+    iterativeGui.ExecuteScriptAsync("setConversationData(" . (iterativeSessionJson != "" ? iterativeSessionJson : "{}") . ")")
+    iterativePendingSession := false
+}
+
+SendCommandsToIterativeUI() {
+    global iterativeGui, iterativeReady
+    if !IsObject(iterativeGui) || !iterativeReady
+        return
+    iterativeGui.ExecuteScriptAsync("setPromptCatalog(" . BuildPromptCatalogJson() . ")")
+}
+
+BuildPromptCatalogJson() {
+    global ALL_COMMAND_NAMES, COMMAND_PROMPTS, COMMAND_PROVIDERS, COMMAND_MODELS
+    json := "["
+    for i, name in ALL_COMMAND_NAMES {
+        if (i > 1)
+            json .= ","
+        promptBody := COMMAND_PROMPTS.Has(name) ? EscJson(COMMAND_PROMPTS[name]) : ""
+        providerId := COMMAND_PROVIDERS.Has(name) ? EscJson(COMMAND_PROVIDERS[name]) : ""
+        modelId := COMMAND_MODELS.Has(name) ? EscJson(COMMAND_MODELS[name]) : ""
+        json .= '{"name":"' . EscJson(name) . '","prompt":"' . promptBody . '","provider":"' . providerId . '","model":"' . modelId . '"}'
+    }
+    json .= "]"
+    return json
+}
+
+BuildIterativeAssistantReplyJson(outputText, provider, model) {
+    return '{'
+        . '"content":"' . EscJson(outputText) . '",'
+        . '"provider":"' . EscJson(provider) . '",'
+        . '"providerLabel":"' . EscJson(ProviderDisplayName(provider)) . '",'
+        . '"model":"' . EscJson(model) . '"'
+        . '}'
+}
+
+BuildIterativeSessionJson(commandName, originalText, promptText, outputText, provider, model) {
+    userEntry := '{'
+        . '"role":"user",'
+        . '"content":"' . EscJson(promptText) . '",'
+        . '"label":"' . EscJson(commandName) . '"'
+        . '}'
+    assistantEntry := '{'
+        . '"role":"assistant",'
+        . '"content":"' . EscJson(outputText) . '",'
+        . '"providerLabel":"' . EscJson(ProviderDisplayName(provider)) . '",'
+        . '"model":"' . EscJson(model) . '"'
+        . '}'
+    return '{'
+        . '"original":"' . EscJson(originalText) . '",'
+        . '"provider":"' . EscJson(provider) . '",'
+        . '"providerLabel":"' . EscJson(ProviderDisplayName(provider)) . '",'
+        . '"model":"' . EscJson(model) . '",'
+        . '"messages":[' . userEntry . ',' . assistantEntry . ']'
+        . '}'
+}
+
+BuildBlankPromptChatSessionJson() {
+    global API_PROVIDER, API_MODEL
+    return '{'
+        . '"original":"",'
+        . '"provider":"' . EscJson(API_PROVIDER) . '",'
+        . '"providerLabel":"' . EscJson(ProviderDisplayName(API_PROVIDER)) . '",'
+        . '"model":"' . EscJson(API_MODEL) . '",'
+        . '"messages":[]'
+        . '}'
 }
 
 ; ============================================================
@@ -838,16 +934,14 @@ ShowPromptEditor() {
 
     dllPath := A_ScriptDir "\lib\" (A_PtrSize * 8) "bit\WebView2Loader.dll"
     editorGui := WebViewGui("+AlwaysOnTop +Resize +MinSize500x400 -Caption", "Prompt Editor",, {DllPath: dllPath})
+    RegisterResizableWindow(editorGui)
     editorGui.OnEvent("Close", EditorWindowClose)
     if (A_IsCompiled)
         editorGui.Control.BrowseFolder(A_ScriptDir)
     editorGui.Control.wv.add_WebMessageReceived(EditorMessageHandler)
     editorGui.Navigate("ui/prompt-editor.html")
     GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
-    savedW := ReadSetting("editor_w")
-    savedH := ReadSetting("editor_h")
-    w := (savedW != "" && Integer(savedW) >= 500) ? savedW : 600
-    h := (savedH != "" && Integer(savedH) >= 400) ? savedH : 550
+    GetPersistedWindowSize("editor", 500, 400, 600, 550, &w, &h)
     x := ml + (mr - ml - w) // 2
     y := mt + (mb - mt - h) // 3
     editorGui.Show("x" . x . " y" . y . " w" . w . " h" . h)
@@ -864,7 +958,7 @@ EditorMessageHandler(wv, msg) {
 }
 
 HandleEditorAction(action, rawJson := "") {
-    global editorGui, editorReady, COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_HOTKEYS, COMMAND_CONFIRMS, ALL_COMMAND_NAMES, wvGui, wvReady, API_PROVIDER
+    global editorGui, editorReady, COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_HOTKEYS, COMMAND_CONFIRMS, ALL_COMMAND_NAMES, API_PROVIDER
 
     switch action {
     case "ready":
@@ -971,13 +1065,13 @@ HandleEditorAction(action, rawJson := "") {
         ; Save to prompts.json
         SavePromptsJson()
 
-        ; Refresh editor and main window
+        ; Refresh editor and prompt UIs
         SendPromptsToEditor()
         editorGui.ExecuteScriptAsync('onSaved("' . EscJson(newName) . '")')
         ResumeDynamicHotkeys()
         ResumePromptHotkeys()
-        if IsObject(wvGui) && wvReady
-            SendCommandsToUI()
+        SendCommandsToPickerUI()
+        SendCommandsToIterativeUI()
 
     case "deletePrompt":
         delName := editorGui.ExecuteScript("selectedName")
@@ -999,8 +1093,8 @@ HandleEditorAction(action, rawJson := "") {
         SavePromptsJson()
         SendPromptsToEditor()
         editorGui.ExecuteScriptAsync('setStatus("Deleted: ' . EscJson(delName) . '")')
-        if IsObject(wvGui) && wvReady
-            SendCommandsToUI()
+        SendCommandsToPickerUI()
+        SendCommandsToIterativeUI()
 
     case "minimize":
         StopWindowFocus("editor")
@@ -1010,6 +1104,7 @@ HandleEditorAction(action, rawJson := "") {
 
     case "close":
         StopWindowFocus("editor")
+        PersistWindowSize(editorGui, "editor")
         editorGui.Hide()
         ResumeDynamicHotkeys()
         ResumePromptHotkeys()
@@ -1274,8 +1369,7 @@ ShowPromptConfirmDialog(promptName, initialPrompt, initialInput, &outPrompt, &ou
     promptConfirmInputResult := initialInput
 
     GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
-    w := 760
-    h := 560
+    GetPersistedWindowSize("confirm", 520, 320, 760, 560, &w, &h)
     x := ml + (mr - ml - w) // 2
     y := mt + (mb - mt - h) // 3
     promptConfirmGui.Show("x" . x . " y" . y . " w" . w . " h" . h)
@@ -1298,6 +1392,7 @@ InitPromptConfirmWindow() {
 
     dllPath := A_ScriptDir "\lib\" (A_PtrSize * 8) "bit\WebView2Loader.dll"
     promptConfirmGui := WebViewGui("+AlwaysOnTop +Resize +MinSize520x320 -Caption", "Confirm Prompt",, {DllPath: dllPath})
+    RegisterResizableWindow(promptConfirmGui)
     promptConfirmGui.OnEvent("Close", PromptConfirmWindowClose)
     if (A_IsCompiled)
         promptConfirmGui.Control.BrowseFolder(A_ScriptDir)
@@ -1310,8 +1405,10 @@ PromptConfirmWindowClose(*) {
     promptConfirmCancelled := true
     promptConfirmDone := true
     StopWindowFocus("promptConfirm")
-    if IsObject(promptConfirmGui)
+    if IsObject(promptConfirmGui) {
+        PersistWindowSize(promptConfirmGui, "confirm")
         promptConfirmGui.Hide()
+    }
     return 1
 }
 
@@ -1358,11 +1455,13 @@ HandlePromptConfirmAction(action, rawJson := "") {
         promptConfirmCancelled := false
         promptConfirmDone := true
         StopWindowFocus("promptConfirm")
+        PersistWindowSize(promptConfirmGui, "confirm")
 
     case "cancel":
         promptConfirmCancelled := true
         promptConfirmDone := true
         StopWindowFocus("promptConfirm")
+        PersistWindowSize(promptConfirmGui, "confirm")
 
     case "minimize":
         if IsObject(promptConfirmGui)
@@ -1372,6 +1471,7 @@ HandlePromptConfirmAction(action, rawJson := "") {
         promptConfirmCancelled := true
         promptConfirmDone := true
         StopWindowFocus("promptConfirm")
+        PersistWindowSize(promptConfirmGui, "confirm")
     }
 }
 
@@ -1614,16 +1714,14 @@ ExecutePromptSilently(promptName, *) {
 }
 
 CheckPromptsReload() {
-    global PROMPTS_FILE, PROMPTS_LAST_MOD, wvGui, wvReady
+    global PROMPTS_FILE, PROMPTS_LAST_MOD
     if !FileExist(PROMPTS_FILE)
         return
     currentMod := FileGetTime(PROMPTS_FILE, "M")
     if (currentMod != PROMPTS_LAST_MOD) {
         LoadPrompts()
-        ; Update WebViews if open and ready
-        if IsObject(wvGui) && wvReady
-            SendCommandsToUI()
         SendCommandsToPickerUI()
+        SendCommandsToIterativeUI()
         ShowTip("Prompts reloaded (" . ALL_COMMAND_NAMES.Length . " commands)", 2000)
     }
 }
@@ -1638,7 +1736,7 @@ SetTimer(CheckPromptsReload, 5000)
 SoundBeep(800, 100)
 
 ; Pre-load WebViews in background (deferred so they don't block startup)
-SetTimer(InitMainWindow, -500)
+SetTimer(InitIterativeWindow, -500)
 SetTimer(InitPickerWindow, -800)
 SetTimer(InitPromptConfirmWindow, -1100)
 
@@ -1646,11 +1744,11 @@ SetTimer(InitPromptConfirmWindow, -1100)
 ; RESIZE BORDER — WM_NCHITTEST override for -Caption windows
 ; ============================================================
 WM_NCHITTEST_Handler(wParam, lParam, msg, hwnd) {
-    global wvGui, settingsGui, editorGui
-    isOurs := (IsObject(wvGui)       && hwnd = wvGui.Hwnd)
-           || (IsObject(settingsGui) && hwnd = settingsGui.Hwnd)
-           || (IsObject(editorGui)   && hwnd = editorGui.Hwnd)
-    if !isOurs
+    rootHwnd := GetTopLevelWindowHwnd(hwnd)
+    if !rootHwnd
+        rootHwnd := hwnd
+
+    if !IsResizableWindowHwnd(rootHwnd)
         return 0
     mx := lParam & 0xFFFF
     my := (lParam >> 16) & 0xFFFF
@@ -1658,7 +1756,7 @@ WM_NCHITTEST_Handler(wParam, lParam, msg, hwnd) {
         mx -= 0x10000
     if (my >= 0x8000)
         my -= 0x10000
-    WinGetPos(&wx, &wy, &ww, &wh, hwnd)
+    WinGetPos(&wx, &wy, &ww, &wh, rootHwnd)
     bz := 6
     onLeft   := (mx < wx + bz)
     onRight  := (mx >= wx + ww - bz)
@@ -1686,18 +1784,6 @@ WM_NCHITTEST_Handler(wParam, lParam, msg, hwnd) {
 ; ============================================================
 ; CLOSE HANDLERS — return 1 to prevent default action
 ; ============================================================
-MainWindowClose(*) {
-    global wvGui
-    StopWindowFocus("main")
-    try {
-        wvGui.GetPos(,, &w, &h)
-        if (w > 0 && h > 0)
-            SaveSettingBatch(Map("main_w", w, "main_h", h))
-    }
-    wvGui.Hide()
-    return 1
-}
-
 TrayIconMessageHandler(wParam, lParam, msg, hwnd) {
     static WM_LBUTTONUP := 0x202
     if (lParam = WM_LBUTTONUP) {
@@ -1709,11 +1795,7 @@ TrayIconMessageHandler(wParam, lParam, msg, hwnd) {
 EditorWindowClose(*) {
     global editorGui
     StopWindowFocus("editor")
-    try {
-        editorGui.GetPos(,, &w, &h)
-        if (w > 0 && h > 0)
-            SaveSettingBatch(Map("editor_w", w, "editor_h", h))
-    }
+    PersistWindowSize(editorGui, "editor")
     editorGui.Hide()
     ; Ensure recording-state suspensions are always reverted on native close paths.
     ResumeDynamicHotkeys()
@@ -1724,6 +1806,53 @@ EditorWindowClose(*) {
 ; ============================================================
 ; UTILITIES
 ; ============================================================
+
+RegisterResizableWindow(guiObj) {
+    global RESIZABLE_WINDOW_HWNDS
+    if IsObject(guiObj)
+        RESIZABLE_WINDOW_HWNDS[guiObj.Hwnd] := true
+}
+
+GetTopLevelWindowHwnd(hwnd) {
+    if !hwnd
+        return 0
+    try return DllCall("GetAncestor", "ptr", hwnd, "uint", 2, "ptr")
+    catch
+        return hwnd
+}
+
+IsResizableWindowHwnd(hwnd) {
+    global RESIZABLE_WINDOW_HWNDS, settingsGui, pickerGui, editorGui, promptConfirmGui, iterativeGui
+
+    if RESIZABLE_WINDOW_HWNDS.Has(hwnd)
+        return true
+
+    for guiObj in [settingsGui, pickerGui, editorGui, promptConfirmGui, iterativeGui] {
+        if (IsObject(guiObj) && guiObj.Hwnd = hwnd) {
+            RESIZABLE_WINDOW_HWNDS[hwnd] := true
+            return true
+        }
+    }
+
+    return false
+}
+
+PersistWindowSize(guiObj, prefix) {
+    if !IsObject(guiObj) || prefix = ""
+        return
+    try {
+        guiObj.GetPos(,, &w, &h)
+        if (w > 0 && h > 0)
+            SaveSettingBatch(Map(prefix . "_w", w, prefix . "_h", h))
+    }
+}
+
+GetPersistedWindowSize(prefix, minW, minH, defaultW, defaultH, &w, &h) {
+    savedW := ReadSetting(prefix . "_w")
+    savedH := ReadSetting(prefix . "_h")
+    w := (savedW != "" && Integer(savedW) >= minW) ? savedW : defaultW
+    h := (savedH != "" && Integer(savedH) >= minH) ? savedH : defaultH
+}
 
 ScheduleWindowFocus(windowKey, guiObj, focusScript := "", durationMs := 1800, intervalMs := 80) {
     global WINDOW_FOCUS_JOBS
@@ -1740,8 +1869,7 @@ ScheduleWindowFocus(windowKey, guiObj, focusScript := "", durationMs := 1800, in
 
 StopWindowFocus(windowKey) {
     global WINDOW_FOCUS_JOBS
-    if WINDOW_FOCUS_JOBS.Has(windowKey)
-        WINDOW_FOCUS_JOBS.Delete(windowKey)
+    RemoveWindowFocusJob(windowKey)
 }
 
 EnsureWindowFocus(windowKey) {
@@ -1752,13 +1880,13 @@ EnsureWindowFocus(windowKey) {
     state := WINDOW_FOCUS_JOBS[windowKey]
     guiObj := state["gui"]
     if !IsObject(guiObj) {
-        WINDOW_FOCUS_JOBS.Delete(windowKey)
+        RemoveWindowFocusJob(windowKey)
         return
     }
 
     hwndSpec := "ahk_id " . guiObj.Hwnd
     if !WinExist(hwndSpec) {
-        WINDOW_FOCUS_JOBS.Delete(windowKey)
+        RemoveWindowFocusJob(windowKey)
         return
     }
 
@@ -1770,6 +1898,12 @@ EnsureWindowFocus(windowKey) {
     if (A_TickCount < state["until"])
         SetTimer(EnsureWindowFocus.Bind(windowKey), -state["interval"])
     else
+        RemoveWindowFocusJob(windowKey)
+}
+
+RemoveWindowFocusJob(windowKey) {
+    global WINDOW_FOCUS_JOBS
+    if WINDOW_FOCUS_JOBS.Has(windowKey)
         WINDOW_FOCUS_JOBS.Delete(windowKey)
 }
 

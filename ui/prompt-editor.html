@@ -52,7 +52,7 @@
   textarea {
     font-family: var(--font-mono);
     line-height: 1.4;
-    resize: none;
+    resize: vertical;
   }
 
   textarea.readonly {
@@ -60,7 +60,7 @@
     background: #1A1A1A;
   }
 
-  #prompt-text { flex: 1; min-height: 80px; }
+  #prompt-text { min-height: 240px; }
 
   /* Generic picker (used for both prompt list and model) */
   .picker { position: relative; }
@@ -254,7 +254,7 @@
   ::-webkit-scrollbar-thumb:hover { background: #555; }
 </style>
 </head>
-<body>
+<body data-window-id="prompt-editor" data-window-resizable="true">
 
   <div class="titlebar">
     <div class="grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
@@ -265,77 +265,82 @@
     </div>
   </div>
 
-  <div class="content-area">
-  <div class="section">
-    <label>Prompt — type to filter</label>
-    <div class="picker">
-      <input type="text" id="prompt-filter" autocomplete="off" placeholder="Search prompts...">
-      <div id="prompt-dropdown" class="picker-dropdown"></div>
-    </div>
-  </div>
-
-  <div class="section">
-    <label>Name</label>
-    <div class="name-row">
-      <input type="text" id="prompt-name" placeholder="Prompt name...">
-      <span id="file-indicator"></span>
-    </div>
-  </div>
-
-  <div class="section">
-    <label>Provider <span style="color:var(--text-muted)">(blank = use app default)</span></label>
-    <div class="provider-row">
-      <select id="prompt-provider">
-        <option value="">(Use app default)</option>
-        <option value="openrouter">OpenRouter</option>
-        <option value="openai">OpenAI</option>
-        <option value="anthropic">Anthropic</option>
-        <option value="xai">xAI</option>
-      </select>
-    </div>
-  </div>
-
-  <div class="section">
-    <label>Model <span style="color:var(--text-muted)">(blank = use provider default) — type to filter</span></label>
-    <div class="model-row">
+  <div class="content-area window-shell">
+  <div class="window-scroll">
+    <div class="section">
+      <label>Prompt — type to filter</label>
       <div class="picker">
-        <input type="text" id="prompt-model" autocomplete="off" placeholder="Search models...">
-        <div id="model-dropdown" class="picker-dropdown"></div>
+        <input type="text" id="prompt-filter" autocomplete="off" placeholder="Search prompts...">
+        <div id="prompt-dropdown" class="picker-dropdown"></div>
       </div>
-      <button class="btn-clear-model" id="btn-clear-model" title="Clear model (use default)">&#10005;</button>
+    </div>
+
+    <div class="section">
+      <label>Name</label>
+      <div class="name-row">
+        <input type="text" id="prompt-name" placeholder="Prompt name...">
+        <span id="file-indicator"></span>
+      </div>
+    </div>
+
+    <div class="section">
+      <label>Provider <span style="color:var(--text-muted)">(blank = use app default)</span></label>
+      <div class="provider-row">
+        <select id="prompt-provider">
+          <option value="">(Use app default)</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="xai">xAI</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="section">
+      <label>Model <span style="color:var(--text-muted)">(blank = use provider default) — type to filter</span></label>
+      <div class="model-row">
+        <div class="picker">
+          <input type="text" id="prompt-model" autocomplete="off" placeholder="Search models...">
+          <div id="model-dropdown" class="picker-dropdown"></div>
+        </div>
+        <button class="btn-clear-model" id="btn-clear-model" title="Clear model (use default)">&#10005;</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <label>Hotkey <span style="color:var(--text-muted)">(optional — single combo or chord: Alt+Q -> R)</span></label>
+      <div class="hotkey-row">
+        <input type="text" id="prompt-hotkey" readonly placeholder="Click to set hotkey..."
+               data-ahk-key="">
+        <button class="btn-clear-hotkey" id="btn-clear-hotkey" title="Clear hotkey">&#10005;</button>
+      </div>
+      <div class="confirm-row" style="margin-top:8px;">
+        <input type="checkbox" id="prompt-confirm">
+        <label for="prompt-confirm" style="margin:0; cursor:pointer;">Confirm prompt before running by hotkey</label>
+      </div>
+    </div>
+
+    <div class="section editor">
+      <label>Prompt text</label>
+      <textarea id="prompt-text" placeholder="Enter prompt instructions..."></textarea>
     </div>
   </div>
 
-  <div class="section">
-    <label>Hotkey <span style="color:var(--text-muted)">(optional — single combo or chord: Alt+Q -> R)</span></label>
-    <div class="hotkey-row">
-      <input type="text" id="prompt-hotkey" readonly placeholder="Click to set hotkey..."
-             data-ahk-key="">
-      <button class="btn-clear-hotkey" id="btn-clear-hotkey" title="Clear hotkey">&#10005;</button>
+  <div class="window-footer">
+    <div class="button-row">
+      <button class="primary" id="btn-save">Save <span style="opacity:0.5">(Ctrl+S)</span></button>
+      <button id="btn-new">New</button>
+      <button class="danger" id="btn-delete" disabled>Delete</button>
+      <span class="spacer"></span>
+      <button id="btn-close">Close</button>
     </div>
-    <div class="confirm-row" style="margin-top:8px;">
-      <input type="checkbox" id="prompt-confirm">
-      <label for="prompt-confirm" style="margin:0; cursor:pointer;">Confirm prompt before running by hotkey</label>
-    </div>
-  </div>
 
-  <div class="section editor">
-    <label>Prompt text</label>
-    <textarea id="prompt-text" placeholder="Enter prompt instructions..."></textarea>
+    <div id="status">Select a prompt to edit</div>
   </div>
-
-  <div class="button-row">
-    <button class="primary" id="btn-save">Save <span style="opacity:0.5">(Ctrl+S)</span></button>
-    <button id="btn-new">New</button>
-    <button class="danger" id="btn-delete" disabled>Delete</button>
-    <span class="spacer"></span>
-    <button id="btn-close">Close</button>
-  </div>
-
-  <div id="status">Select a prompt to edit</div>
   </div>
 
 <script src="ahk-bridge.js"></script>
+<script src="window-ui.js"></script>
 <script>
   // =============================================
   // STATE
@@ -780,7 +785,10 @@
   // =============================================
   // READY
   // =============================================
-  document.addEventListener('DOMContentLoaded', () => sendToAHK('ready'));
+  document.addEventListener('DOMContentLoaded', () => {
+    initWindowUI();
+    sendToAHK('ready');
+  });
 </script>
 </body>
 </html>

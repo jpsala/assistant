@@ -14,19 +14,20 @@ AHK v2 system tray app for daily text processing. Lives in memory, called via gl
 
 | Hotkey | Action |
 |--------|--------|
-| `Alt+Shift+W` | Main window — prompt-based: shows clipboard preview, command picker, prompt field, result |
+| `Alt+Shift+W` | Prompt Chat — conversational workspace for iterating on selected text |
 | `Alt+Shift+F` | Fix clipboard — auto-detects language, corrects text in JP's style, replaces clipboard |
 | *(user-assigned)* | Prompt picker — spotlight-style list to silently run a command on selected text |
+| *(user-assigned)* | Prompt Chat picker — opens Prompt Chat after the first selected prompt run |
 
 All hotkeys are configurable in Settings (right-click tray icon).
 
-## Main window (Alt+Shift+W)
+## Prompt Chat (Alt+Shift+W)
 
-- **Clipboard preview** (read-only): shows what's in clipboard when window opens
-- **Command dropdown** (`Alt+J` to focus): predefined prompts, type to filter. Shows model and hotkey per command.
-- **Prompt field**: custom instructions to apply to the clipboard text
-- **Result panel**: output from the API
-- **Shortcuts**: `Ctrl+Enter` to submit, `Escape` to hide
+- **Original text** pinned at the top of the session
+- **Chat-style timeline**: initial prompt, first assistant reply, and all follow-up turns
+- **Composer**: supports `/prompt name` on the first line to inject a saved prompt into that turn
+- **Actions**: copy latest assistant reply or replace selected text in the target app
+- **Shortcuts**: `Ctrl+Enter` to send, `Escape` to hide
 
 ## Prompt picker
 
@@ -43,7 +44,7 @@ A spotlight-style floating window for running commands silently on selected text
 ```
 ai-assistant.ahk          # Main: tray, hotkeys, WebView GUI, provider/key loading, prompt loading
 ui/
-  index.html              # WebView2 UI (HTML/CSS/JS, dark theme)
+  iterative.html          # Prompt Chat UI (chat-style iterative workspace)
   picker.html             # Prompt picker popup (spotlight-style, pre-loaded at startup)
 lib/
   api.ahk                 # Multi-provider API calls, models fetch, settings persistence

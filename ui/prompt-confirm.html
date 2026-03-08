@@ -89,7 +89,7 @@
     font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.4;
-    resize: none;
+    resize: vertical;
     outline: none;
     user-select: text;
   }
@@ -164,7 +164,7 @@
   ::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 </style>
 </head>
-<body>
+<body data-window-id="prompt-confirm" data-window-resizable="true">
   <div class="titlebar">
     <div class="grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
     <div class="titlebar-title"><span class="titlebar-icon">✎</span> Confirm Prompt Run</div>
@@ -174,8 +174,8 @@
     </div>
   </div>
 
-  <div class="content-area">
-    <div class="confirm-content">
+  <div class="content-area window-shell">
+    <div class="confirm-content window-scroll">
       <div class="section">
         <div class="section-header">Prompt</div>
         <div class="section-body">
@@ -193,7 +193,7 @@
       </div>
     </div>
 
-    <div class="footer">
+    <div class="footer window-footer">
       <div class="button-row">
         <button class="primary" id="btn-run">Run Prompt</button>
         <button id="btn-cancel">Cancel</button>
@@ -203,6 +203,7 @@
   </div>
 
 <script src="ahk-bridge.js"></script>
+<script src="window-ui.js"></script>
 <script>
   const promptNameEl = document.getElementById('prompt-name');
   const promptInputEl = document.getElementById('prompt-input');
@@ -257,7 +258,10 @@
     }
   });
 
-  document.addEventListener('DOMContentLoaded', () => sendToAHK('ready'));
+  document.addEventListener('DOMContentLoaded', () => {
+    initWindowUI();
+    sendToAHK('ready');
+  });
 </script>
 </body>
 </html>

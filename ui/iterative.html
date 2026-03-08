@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Chat</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  :root {
+    --bg-input: #202020;
+    --bg-panel: #232323;
+    --bubble-user: #0f3f5a;
+    --bubble-assistant: #2b2b2b;
+  }
+
+  body { padding: 0; border-color: rgba(255,255,255,0.25); }
+
+  .content-area {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 16px 16px;
+    overflow: hidden;
+    gap: 12px;
+  }
+
+  .original-card {
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-panel);
+    overflow: hidden;
+  }
+
+  .card-title {
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    background: rgba(255,255,255,0.03);
+  }
+
+  #original-text {
+    width: 100%;
+    min-height: 120px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: none;
+    padding: 10px 12px 12px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.45;
+    resize: vertical;
+    outline: none;
+    user-select: text;
+  }
+
+  .chat-shell {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-panel);
+    overflow: hidden;
+  }
+
+  .chat-header {
+    flex-shrink: 0;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .chat-meta {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .chat-history {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 14px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background:
+      radial-gradient(circle at top right, rgba(0,122,204,0.07), transparent 30%),
+      linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0));
+  }
+
+  .message-row {
+    display: flex;
+  }
+
+  .message-row.user {
+    justify-content: flex-end;
+  }
+
+  .message-row.assistant {
+    justify-content: flex-start;
+  }
+
+  .bubble {
+    max-width: min(80%, 760px);
+    border-radius: 12px;
+    padding: 10px 12px;
+    white-space: pre-wrap;
+    line-height: 1.45;
+    font-size: 13px;
+    user-select: text;
+  }
+
+  .message-row.user .bubble {
+    background: var(--bubble-user);
+    color: #e8f6ff;
+    border-bottom-right-radius: 4px;
+  }
+
+  .message-row.assistant .bubble {
+    background: var(--bubble-assistant);
+    color: var(--text-primary);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-bottom-left-radius: 4px;
+  }
+
+  .message-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 6px;
+  }
+
+  .composer {
+    flex-shrink: 0;
+    border-top: 1px solid var(--border);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: rgba(255,255,255,0.01);
+  }
+
+  #composer-input {
+    width: 100%;
+    min-height: 92px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    line-height: 1.4;
+    resize: vertical;
+    outline: none;
+    user-select: text;
+  }
+
+  .composer-box {
+    position: relative;
+  }
+
+  .slash-dropdown {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 6px);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 24px rgba(0,0,0,0.28);
+    max-height: 220px;
+    overflow-y: auto;
+    display: none;
+    z-index: 25;
+  }
+
+  .slash-dropdown.visible {
+    display: block;
+  }
+
+  .slash-item {
+    padding: 8px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .slash-item:last-child {
+    border-bottom: none;
+  }
+
+  .slash-item:hover,
+  .slash-item.active {
+    background: var(--bg-hover);
+  }
+
+  .slash-name {
+    font-size: 13px;
+    color: var(--text-primary);
+    margin-bottom: 3px;
+  }
+
+  .slash-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  #composer-input:focus, #original-text:focus {
+    border-color: var(--border-focus);
+  }
+
+  .composer-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  button {
+    padding: 6px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  button:hover { background: var(--bg-hover); }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  button.primary:hover {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+
+  .spacer { flex: 1; }
+
+  #status {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+</style>
+</head>
+<body data-window-id="iterative" data-window-resizable="true">
+  <div class="titlebar">
+    <div class="grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="titlebar-title"><span class="titlebar-icon">↺</span> Prompt Chat</div>
+    <div class="window-controls">
+      <button class="win-btn win-minimize" onclick="minimizeWindow()">&#x2212;</button>
+      <button class="win-btn win-close" onclick="closeWindow()">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="content-area window-shell">
+    <div class="original-card">
+      <div class="card-title">Original Text</div>
+      <textarea id="original-text" spellcheck="false" readonly></textarea>
+    </div>
+
+    <div class="chat-shell">
+        <div class="chat-header">
+          <div class="chat-meta" id="session-meta">Conversation</div>
+        <div class="chat-meta">First line can be `/prompt name` · Ctrl+Enter to send</div>
+      </div>
+
+      <div class="chat-history" id="chat-history"></div>
+
+      <div class="composer">
+        <div class="composer-box">
+          <div class="slash-dropdown" id="slash-dropdown"></div>
+          <textarea id="composer-input" spellcheck="false" placeholder="Write the next instruction..."></textarea>
+        </div>
+        <div class="composer-footer">
+          <button class="primary" id="btn-send">Send</button>
+          <button id="btn-copy">Copy Latest</button>
+          <button id="btn-replace">Replace Selected Text</button>
+          <span class="spacer"></span>
+          <div id="status">Ready</div>
+          <button id="btn-close">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="ahk-bridge.js"></script>
+<script src="window-ui.js"></script>
+<script>
+  let conversationState = {
+    original: '',
+    provider: '',
+    providerLabel: '',
+    model: '',
+    messages: []
+  };
+  window.__promptChatPendingMessage = '';
+  window.__promptChatPendingTranscript = '';
+  window.__promptChatPendingProvider = '';
+  window.__promptChatPendingModel = '';
+  let promptCatalog = [];
+  let slashMatches = [];
+  let slashActiveIndex = -1;
+
+  const originalText = document.getElementById('original-text');
+  const sessionMeta = document.getElementById('session-meta');
+  const chatHistory = document.getElementById('chat-history');
+  const composerInput = document.getElementById('composer-input');
+  const statusEl = document.getElementById('status');
+  const slashDropdown = document.getElementById('slash-dropdown');
+
+  function post(action, data = {}) {
+    postToAHK({ action, ...data });
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text || '';
+  }
+
+  function setPromptCatalog(data) {
+    if (typeof data === 'string') data = JSON.parse(data);
+    promptCatalog = data || [];
+  }
+
+  function setConversationData(data) {
+    if (typeof data === 'string') data = JSON.parse(data);
+    conversationState = {
+      original: data.original || '',
+      provider: data.provider || '',
+      providerLabel: data.providerLabel || '',
+      model: data.model || '',
+      messages: Array.isArray(data.messages) ? data.messages.slice() : []
+    };
+    originalText.value = conversationState.original;
+    sessionMeta.textContent = [conversationState.providerLabel, conversationState.model].filter(Boolean).join(' · ') || 'Conversation';
+    renderMessages();
+    setStatus('Ready');
+  }
+
+  function renderMessages() {
+    chatHistory.innerHTML = '';
+    for (const message of conversationState.messages) {
+      const row = document.createElement('div');
+      row.className = 'message-row ' + (message.role === 'assistant' ? 'assistant' : 'user');
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = message.content || '';
+
+      if (message.label || message.providerLabel || message.model) {
+        const meta = document.createElement('div');
+        meta.className = 'message-meta';
+        const parts = [];
+        if (message.label) parts.push(message.label);
+        if (message.providerLabel) parts.push(message.providerLabel);
+        if (message.model) parts.push(message.model);
+        meta.textContent = parts.join(' · ');
+        bubble.appendChild(meta);
+      }
+
+      row.appendChild(bubble);
+      chatHistory.appendChild(row);
+    }
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  function getSlashQuery() {
+    const firstLine = (composerInput.value || '').split('\n')[0].trimStart();
+    if (!firstLine.startsWith('/')) return null;
+    return firstLine.slice(1);
+  }
+
+  function renderSlashDropdown() {
+    slashDropdown.innerHTML = '';
+    if (slashMatches.length === 0) {
+      slashDropdown.classList.remove('visible');
+      slashActiveIndex = -1;
+      return;
+    }
+
+    slashMatches.forEach((prompt, index) => {
+      const item = document.createElement('div');
+      item.className = 'slash-item' + (index === slashActiveIndex ? ' active' : '');
+      const meta = [prompt.provider, prompt.model].filter(Boolean).join(' · ');
+      item.innerHTML =
+        '<div class="slash-name">/' + (prompt.name || '') + '</div>' +
+        '<div class="slash-meta">' + (meta || 'saved prompt') + '</div>';
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        applySlashSelection(index);
+      });
+      slashDropdown.appendChild(item);
+    });
+    slashDropdown.classList.add('visible');
+  }
+
+  function updateSlashMatches() {
+    const query = getSlashQuery();
+    if (query === null) {
+      slashMatches = [];
+      renderSlashDropdown();
+      return;
+    }
+    const q = query.toLowerCase();
+    slashMatches = q === ''
+      ? promptCatalog.slice(0, 20)
+      : promptCatalog.filter((item) => (item.name || '').toLowerCase().includes(q)).slice(0, 20);
+    slashActiveIndex = slashMatches.length > 0 ? 0 : -1;
+    renderSlashDropdown();
+  }
+
+  function applySlashSelection(index) {
+    const selected = slashMatches[index];
+    if (!selected) return;
+    const lines = composerInput.value.split('\n');
+    lines[0] = '/' + selected.name;
+    composerInput.value = lines.join('\n');
+    slashMatches = [];
+    renderSlashDropdown();
+    composerInput.focus();
+    const len = composerInput.value.length;
+    composerInput.setSelectionRange(len, len);
+  }
+
+  function parseSlashPrompt(rawMessage) {
+    const value = String(rawMessage || '');
+    const lines = value.split('\n');
+    const firstLine = (lines[0] || '').trim();
+    if (!firstLine.startsWith('/')) {
+      return {
+        displayMessage: value,
+        expandedMessage: value,
+        promptRef: null
+      };
+    }
+
+    const name = firstLine.slice(1).trim();
+    const prompt = promptCatalog.find((item) => (item.name || '').toLowerCase() === name.toLowerCase());
+    if (!prompt) {
+      return {
+        displayMessage: value,
+        expandedMessage: value,
+        promptRef: null
+      };
+    }
+
+    const rest = lines.slice(1).join('\n').trim();
+    const expandedParts = [prompt.prompt || ''];
+    if (rest) expandedParts.push(rest);
+    return {
+      displayMessage: value,
+      expandedMessage: expandedParts.filter(Boolean).join('\n\n'),
+      promptRef: prompt
+    };
+  }
+
+  function buildTranscript(nextUserMessage) {
+    const lines = [];
+    if ((conversationState.original || '').trim()) {
+      lines.push('ORIGINAL TEXT:');
+      lines.push(conversationState.original || '');
+      lines.push('');
+    }
+    lines.push('CONVERSATION:');
+    for (const message of conversationState.messages) {
+      lines.push((message.role === 'assistant' ? 'Assistant' : 'User') + ':');
+      lines.push(message.content || '');
+      lines.push('');
+    }
+    lines.push('User:');
+    lines.push(nextUserMessage || '');
+    return lines.join('\n');
+  }
+
+  function getLatestAssistantText() {
+    for (let i = conversationState.messages.length - 1; i >= 0; i -= 1) {
+      if (conversationState.messages[i].role === 'assistant') {
+        return conversationState.messages[i].content || '';
+      }
+    }
+    return '';
+  }
+
+  function sendComposerMessage() {
+    const message = composerInput.value.trim();
+    if (!message) {
+      setStatus('Write a message first');
+      return;
+    }
+    const parsed = parseSlashPrompt(message);
+    const transcript = buildTranscript(parsed.expandedMessage);
+    conversationState.messages.push({
+      role: 'user',
+      content: parsed.displayMessage,
+      label: parsed.promptRef ? ('/' + parsed.promptRef.name) : ''
+    });
+    renderMessages();
+    composerInput.value = '';
+    slashMatches = [];
+    renderSlashDropdown();
+    setStatus('Sending...');
+    window.__promptChatPendingMessage = parsed.expandedMessage;
+    window.__promptChatPendingTranscript = transcript;
+    window.__promptChatPendingProvider = parsed.promptRef && parsed.promptRef.provider ? parsed.promptRef.provider : conversationState.provider;
+    window.__promptChatPendingModel = parsed.promptRef && parsed.promptRef.model ? parsed.promptRef.model : conversationState.model;
+    post('send', {
+      message: 'pending'
+    });
+  }
+
+  function onAssistantReply(data) {
+    if (typeof data === 'string') data = JSON.parse(data);
+    conversationState.messages.push({
+      role: 'assistant',
+      content: data.content || '',
+      providerLabel: data.providerLabel || conversationState.providerLabel,
+      model: data.model || conversationState.model
+    });
+    renderMessages();
+    setStatus('Done');
+    focusComposer();
+  }
+
+  function focusComposer() {
+    composerInput.focus();
+  }
+
+  function clearPendingSendPayload() {
+    window.__promptChatPendingMessage = '';
+    window.__promptChatPendingTranscript = '';
+    window.__promptChatPendingProvider = '';
+    window.__promptChatPendingModel = '';
+  }
+
+  document.getElementById('btn-send').addEventListener('click', sendComposerMessage);
+  document.getElementById('btn-copy').addEventListener('click', () => {
+    post('copyOutput', { text: getLatestAssistantText() });
+  });
+  document.getElementById('btn-replace').addEventListener('click', () => {
+    post('replaceSelection', { text: getLatestAssistantText() });
+  });
+  document.getElementById('btn-close').addEventListener('click', () => post('close'));
+
+  composerInput.addEventListener('input', () => {
+    updateSlashMatches();
+  });
+
+  composerInput.addEventListener('keydown', (e) => {
+    if (!slashDropdown.classList.contains('visible')) {
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      slashActiveIndex = Math.min(slashActiveIndex + 1, slashMatches.length - 1);
+      renderSlashDropdown();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      slashActiveIndex = Math.max(slashActiveIndex - 1, 0);
+      renderSlashDropdown();
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
+      const query = getSlashQuery();
+      if (query !== null && slashActiveIndex >= 0 && slashMatches[slashActiveIndex]) {
+        e.preventDefault();
+        applySlashSelection(slashActiveIndex);
+      }
+    } else if (e.key === 'Escape') {
+      slashMatches = [];
+      renderSlashDropdown();
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'enter') {
+      e.preventDefault();
+      sendComposerMessage();
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      post('close');
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initWindowUI();
+    post('ready');
+  });
+</script>
+</body>
+</html>

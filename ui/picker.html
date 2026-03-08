@@ -128,7 +128,7 @@
   ::-webkit-scrollbar-thumb:hover { background: #555; }
 </style>
 </head>
-<body>
+<body data-window-id="picker" data-window-resizable="true">
 
   <div class="drag-bar">
     <div class="grip">
@@ -148,6 +148,7 @@
   <div id="status">↑↓ navigate &nbsp;·&nbsp; Enter select &nbsp;·&nbsp; Esc close</div>
 
 <script src="ahk-bridge.js"></script>
+<script src="window-ui.js"></script>
 <script>
   // =============================================
   // STATE
@@ -334,6 +335,7 @@
   // READY
   // =============================================
   document.addEventListener('DOMContentLoaded', () => {
+    initWindowUI({ persistTextareaSize: false });
     postToAHK({ action: 'ready' });
   });
 </script>

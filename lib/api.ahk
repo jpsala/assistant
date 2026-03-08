@@ -333,9 +333,9 @@ LoadMaxTokens() {
 
 ; Default hotkey assignments (AHK format)
 HOTKEY_DEFAULTS := Map(
-    "mainWindow",   "!+w",
-    "goToCommand",  "!j",
+    "promptChat",   "!+w",
     "promptPicker", "",
+    "iterativePromptPicker", "",
     "reload",       ""
 )
 
@@ -347,7 +347,11 @@ LoadHotkeys() {
         confKey := "hotkey_" . actionId
         if settings.Has(confKey)
             hotkeys[actionId] := settings[confKey]
-        else if (actionId = "mainWindow" && settings.Has("hotkey_writeWindow")) {
+        else if (actionId = "promptChat" && settings.Has("hotkey_mainWindow")) {
+            hotkeys[actionId] := settings["hotkey_mainWindow"]
+            SaveSetting(confKey, hotkeys[actionId])
+        }
+        else if (actionId = "promptChat" && settings.Has("hotkey_writeWindow")) {
             hotkeys[actionId] := settings["hotkey_writeWindow"]
             SaveSetting(confKey, hotkeys[actionId])
         }

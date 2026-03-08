@@ -335,7 +335,7 @@
   ::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
 </style>
 </head>
-<body>
+<body data-window-id="settings" data-window-resizable="true">
 
   <div class="titlebar">
     <div class="grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
@@ -346,8 +346,8 @@
     </div>
   </div>
 
-  <div class="content-area">
-  <div class="settings-content">
+  <div class="content-area window-shell">
+  <div class="settings-content window-scroll">
 
     <!-- General -->
     <div class="section">
@@ -455,7 +455,7 @@
 
   </div>
 
-  <div class="footer">
+  <div class="footer window-footer">
     <div class="button-row">
       <button id="btn-refresh">Refresh models</button>
       <button id="btn-close">Close</button>
@@ -465,6 +465,7 @@
   </div>
 
 <script src="ahk-bridge.js"></script>
+<script src="window-ui.js"></script>
 <script>
   // =============================================
   // STATE
@@ -836,6 +837,7 @@
   // READY SIGNAL
   // =============================================
   document.addEventListener('DOMContentLoaded', () => {
+    initWindowUI();
     updateProviderNote();
     sendToAHK('ready');
   });
