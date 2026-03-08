@@ -73,17 +73,19 @@ if errorlevel 1 (
 
 :: Copy runtime files
 echo Copying runtime files...
-copy "%SRC%ui\index.html" "%DIST%\ui\" >nul
+copy "%SRC%ui\iterative.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\settings.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\prompt-editor.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\prompt-confirm.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\picker.html" "%DIST%\ui\" >nul
-copy "%SRC%prompts.json" "%DIST%\" >nul
+copy "%SRC%ui\shared.css" "%DIST%\ui\" >nul
+copy "%SRC%ui\window-ui.js" "%DIST%\ui\" >nul
+copy "%SRC%ui\ahk-bridge.js" "%DIST%\ui\" >nul
 copy "%SRC%lib\32bit\WebView2Loader.dll" "%DIST%\lib\32bit\" >nul
 copy "%SRC%lib\64bit\WebView2Loader.dll" "%DIST%\lib\64bit\" >nul
 if exist "%SRC%icon.ico" copy "%SRC%icon.ico" "%DIST%\" >nul
 
-:: Copy prompt files if @file: references are used
+:: Copy prompt files
 if exist "%SRC%prompts\*.md" (
     if not exist "%DIST%\prompts" mkdir "%DIST%\prompts"
     copy "%SRC%prompts\*.md" "%DIST%\prompts\" >nul

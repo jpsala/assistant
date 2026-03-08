@@ -46,27 +46,34 @@ ai-assistant.ahk          # Main: tray, hotkeys, WebView GUI, provider/key loadi
 ui/
   iterative.html          # Prompt Chat UI (chat-style iterative workspace)
   picker.html             # Prompt picker popup (spotlight-style, pre-loaded at startup)
+  shared.css              # Shared window styles
+  window-ui.js            # Shared resize/footer/textarea behavior
+  ahk-bridge.js           # Shared WebView bridge helpers
 lib/
   api.ahk                 # Multi-provider API calls, models fetch, settings persistence
   prompts.ahk             # Style definitions (STYLE_ES, STYLE_EN), task prompts, GetSystemPrompt()
   lang.ahk                # DetectLanguage() — Spanish chars + common word frequency
   WebViewToo.ahk          # WebView2 wrapper library (external)
   WebView2.ahk            # WebView2 COM bindings
-prompts.json               # Command definitions (auto-reloaded every 5s)
 prompts/
-  como-yo.md               # Full Spanish writing style prompt (@file: reference)
-  like-me.md               # Full English writing style prompt (@file: reference)
+  *.md                     # Prompt definitions (auto-reloaded every 5s)
 .env.example               # Example env with all supported providers
 .env                       # Local API keys (gitignored)
 ```
 
 ## Prompts system
 
-Commands live in `prompts.json` as `"Name": "prompt text"` pairs. The app reloads this file every 5 seconds — no restart needed to add/edit commands.
+Commands live in `prompts/*.md`. The app reloads the folder every 5 seconds, so you can add, edit, or delete prompts without restarting.
 
-For long prompts, use `@file:` references:
-```json
-"Como yo (español)": "@file:prompts/como-yo.md"
+Each prompt file uses a small header plus the prompt body:
+```md
+@name:Quick translate
+@provider:openrouter
+@model:openai/gpt-4.1-mini
+@hotkey:!+t
+@confirm:true
+
+Translate this text to English. Keep the tone and meaning.
 ```
 
 ## Technical notes
@@ -78,16 +85,27 @@ For long prompts, use `@file:` references:
 
 ## Command metadata prefixes
 
-You can add optional metadata at the top of each command value in `prompts.json`:
+You can add optional metadata at the top of each prompt file:
 
 - `@provider:<provider-id>` to force a specific provider for that command (`openrouter`, `openai`, `anthropic`, `xai`)
 - `@model:<model-id>` to force a specific model for that command
 - `@hotkey:<ahk-key>` to assign a global hotkey that silently processes selected text (or clipboard) and replaces it in-place, without opening any window
-- `@file:<relative-path>` to load prompt text from a file
+- `@confirm:true` to show the review window before a hotkey prompt runs
 
 Example:
 
-```json
-"Fix in OpenAI": "@provider:openai\n@model:gpt-4.1-mini\nImprove this text.",
-"Quick translate": "@hotkey:!+t\n@model:google/gemini-flash-1.5\nTranslate to English."
+```md
+@name:Fix in OpenAI
+@provider:openai
+@model:gpt-4.1-mini
+
+Improve this text.
+```
+
+```md
+@name:Quick translate
+@hotkey:!+t
+@model:google/gemini-flash-1.5
+
+Translate to English.
 ```

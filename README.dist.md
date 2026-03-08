@@ -37,43 +37,38 @@ Press `Escape` to close without running anything. Focus returns to the app you w
 
 ## Customizing commands
 
-Edit `prompts.json` to add, remove, or modify commands. The app reloads it automatically every 5 seconds.
+Edit the `.md` files inside `prompts\` to add, remove, or modify commands. The app reloads the folder automatically every 5 seconds.
 
 ### Format
 
-```json
-{
-  "Command name": "Your prompt instruction here",
-  "Multi-line prompt": "Line 1\nLine 2\nLine 3"
-}
+```md
+@name:Command name
+
+Your prompt instruction here.
+Line 2
+Line 3
 ```
 
 ### Special prefixes
 
-- **`@provider:`** — Override the default provider for a command (`openrouter`, `openai`, `anthropic`, `xai`):
-  ```json
-  "My command": "@provider:openai\nYour prompt here"
-  ```
+- **`@provider:`** — Override the default provider for a command (`openrouter`, `openai`, `anthropic`, `xai`)
 
-- **`@model:`** — Override the default model for a specific command:
-  ```json
-  "My command": "@model:anthropic/claude-sonnet-4.6\nYour prompt here"
-  ```
+- **`@model:`** — Override the default model for a specific command
 
-- **`@hotkey:`** — Assign a global hotkey to run this command silently on selected text (AHK key syntax):
-  ```json
-  "Quick translate": "@hotkey:!+t\nTranslate to English."
-  ```
+- **`@hotkey:`** — Assign a global hotkey to run this command silently on selected text (AHK key syntax)
   Commands with `@hotkey:` also appear in the prompt picker with their hotkey shown.
 
-- **`@file:`** — Load the prompt from an external `.md` file (relative to the app folder):
-  ```json
-  "My command": "@file:prompts/my-prompt.md"
-  ```
+- **`@confirm:true`** — Ask for confirmation before running the prompt from a hotkey
 
-You can combine all prefixes:
-```json
-"My command": "@provider:openrouter\n@model:anthropic/claude-sonnet-4.6\n@hotkey:!+1\n@file:prompts/my-prompt.md"
+Example:
+```md
+@name:My command
+@provider:openrouter
+@model:anthropic/claude-sonnet-4.6
+@hotkey:!+1
+@confirm:true
+
+Your prompt here.
 ```
 
 ## Files
@@ -83,7 +78,7 @@ You can combine all prefixes:
 | `ai-assistant.exe` | Main application |
 | `.env` | API keys (created on first run) |
 | `.env.example` | Example env file with all supported providers |
-| `prompts.json` | Command definitions |
+| `prompts\*.md` | Command definitions |
 | `model.conf` | Selected model (auto-created) |
 | `settings.conf` | Hotkeys and settings (auto-created) |
 | `ui/` | HTML interface files |

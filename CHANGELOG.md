@@ -5,15 +5,16 @@ All notable changes to AI Assistant are documented in this file.
 ## [Unreleased]
 
 ### Added
-- `@confirm` directive for hotkey prompts: shows a pre-run dialog letting you review and edit both the prompt text and the input text before the API call is made. Add `@confirm:true` in `prompts.json` or toggle the new checkbox in the Prompt Editor.
+- `@confirm` directive for hotkey prompts: shows a pre-run dialog letting you review and edit both the prompt text and the input text before the API call is made. Add `@confirm:true` in a prompt file or toggle the new checkbox in the Prompt Editor.
 - "Manual" built-in prompt (hotkey `Alt+T,T`) as an empty `@confirm` prompt for ad-hoc one-off requests without opening the main window.
-- Prompt Editor: "Confirm prompt before running by hotkey" checkbox; saved/loaded from `prompts.json` and shown as a "Confirm" tag in the prompt list.
+- Prompt Editor: "Confirm prompt before running by hotkey" checkbox; saved/loaded from prompt files and shown as a "Confirm" tag in the prompt list.
 
 ### Changed
 - `Como yo (español)` and `Like me (English)` prompts moved to `@file:`-free inline format with `@provider:openrouter` and hotkeys assigned.
 - Added hotkeys to `Traducir a inglés` (`Alt+T,E`), `Traducir a español` (`Alt+T,S`), and `Como yo` (`Alt+T,Y`) / `Like me` (`Alt+T,L`).
 - Prompt Editor "save" no longer rejects empty prompt text (allows `@confirm` prompts with no default body).
 - Opening or saving a prompt in the Prompt Editor defensively calls `ResumeDynamicHotkeys` / `ResumePromptHotkeys` to recover any suspended hotkeys.
+- Prompt storage now uses `prompts/*.md` as the source of truth, with one prompt per file and legacy `prompts.json` automatically migrated on load.
 
 ### Added
 - Resizable windows: WM_NCHITTEST handler creates virtual 6px grab borders on all three resizable windows (main, settings, prompt editor), restoring drag-to-resize after `-Caption` removed native OS borders

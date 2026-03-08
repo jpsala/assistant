@@ -1,3 +1,7 @@
+@name:Like me (English)
+@provider:openrouter
+@hotkey:!t,l
+
 Rewrite this text as JP would write it. Make only very minor corrections when something is clearly wrong. Do not rewrite for elegance, fluency, or corporate tone. Preserve JP's structure, wording, and rhythm. Return ONLY the fixed text, no explanations.
 
 ## Style rules

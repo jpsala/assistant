@@ -1062,8 +1062,8 @@ HandleEditorAction(action, rawJson := "") {
         ; Rebuild name list
         RebuildCommandNames()
 
-        ; Save to prompts.json
-        SavePromptsJson()
+        ; Save to prompt files
+        SavePromptFiles()
 
         ; Refresh editor and prompt UIs
         SendPromptsToEditor()
@@ -1090,7 +1090,7 @@ HandleEditorAction(action, rawJson := "") {
 
         RegisterPromptHotkeys(COMMAND_HOTKEYS)
         RebuildCommandNames()
-        SavePromptsJson()
+        SavePromptFiles()
         SendPromptsToEditor()
         editorGui.ExecuteScriptAsync('setStatus("Deleted: ' . EscJson(delName) . '")')
         SendCommandsToPickerUI()
@@ -1196,25 +1196,7 @@ StripPromptMetadata(rawValue, &bodyOut) {
 }
 
 SendPromptsToEditor() {
-    global editorGui, COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_HOTKEYS, COMMAND_CONFIRMS, ALL_COMMAND_NAMES, PROMPTS_FILE
-    ; Build JSON array: [{name, prompt, provider, model, hotkey, confirm, isFile}, ...]
-    ; Need to check which entries are @file: by re-reading prompts.json
-    fileEntries := Map()
-    if FileExist(PROMPTS_FILE) {
-        raw := FileRead(PROMPTS_FILE, "UTF-8")
-        pos := 1
-        while (pos := RegExMatch(raw, '"((?:[^"\\]|\\.)*?)"\s*:\s*"((?:[^"\\]|\\.)*?)"', &m, pos)) {
-            key := StrReplace(m[1], '\"', '"')
-            val := StrReplace(m[2], '\"', '"')
-            val := StrReplace(val, "\\n", "`n")
-            val := StrReplace(val, "\\\\", "\")
-            StripPromptMetadata(val, &body)
-            if (SubStr(body, 1, 6) = "@file:")
-                fileEntries[key] := true
-            pos += m.Len
-        }
-    }
-
+    global editorGui, COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_HOTKEYS, COMMAND_CONFIRMS, ALL_COMMAND_NAMES
     json := "["
     for i, name in ALL_COMMAND_NAMES {
         if (i > 1)
@@ -1224,8 +1206,7 @@ SendPromptsToEditor() {
         modelVal := COMMAND_MODELS.Has(name) ? COMMAND_MODELS[name] : ""
         hotkeyVal := COMMAND_HOTKEYS.Has(name) ? COMMAND_HOTKEYS[name] : ""
         confirmVal := (COMMAND_CONFIRMS.Has(name) && COMMAND_CONFIRMS[name]) ? "true" : "false"
-        isFile := fileEntries.Has(name) ? "true" : "false"
-        json .= '{"name":"' . EscJson(name) . '","prompt":"' . EscJson(promptVal) . '","provider":"' . EscJson(providerVal) . '","model":"' . EscJson(modelVal) . '","hotkey":"' . EscJson(hotkeyVal) . '","confirm":' . confirmVal . ',"isFile":' . isFile . '}'
+        json .= '{"name":"' . EscJson(name) . '","prompt":"' . EscJson(promptVal) . '","provider":"' . EscJson(providerVal) . '","model":"' . EscJson(modelVal) . '","hotkey":"' . EscJson(hotkeyVal) . '","confirm":' . confirmVal . ',"isFile":false}'
     }
     json .= "]"
     editorGui.ExecuteScriptAsync("setPrompts(" . json . ")")
@@ -1255,89 +1236,241 @@ RebuildCommandNames() {
     ALL_COMMAND_NAMES := newNames
 }
 
-SavePromptsJson() {
-    global COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_HOTKEYS, COMMAND_CONFIRMS, ALL_COMMAND_NAMES, PROMPTS_FILE, PROMPTS_LAST_MOD
+SavePromptFiles() {
+    global COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_HOTKEYS, COMMAND_CONFIRMS
+    global ALL_COMMAND_NAMES, PROMPTS_DIR, PROMPTS_LAST_MOD, PROMPT_FILE_PATHS
 
-    ; Read original to preserve @file: entries
-    fileRefs := Map()
-    if FileExist(PROMPTS_FILE) {
-        raw := FileRead(PROMPTS_FILE, "UTF-8")
-        pos := 1
-        while (pos := RegExMatch(raw, '"((?:[^"\\]|\\.)*?)"\s*:\s*"((?:[^"\\]|\\.)*?)"', &m, pos)) {
-            key := StrReplace(m[1], '\"', '"')
-            val := StrReplace(m[2], '\"', '"')
-            val := StrReplace(val, "\\n", "`n")
-            val := StrReplace(val, "\\\\", "\")
-            StripPromptMetadata(val, &body)
-            if (SubStr(body, 1, 6) = "@file:")
-                fileRefs[key] := body
-            pos += m.Len
+    if !DirExist(PROMPTS_DIR)
+        DirCreate(PROMPTS_DIR)
+
+    desiredPaths := Map()
+    usedPaths := Map()
+
+    for _, name in ALL_COMMAND_NAMES {
+        if !COMMAND_PROMPTS.Has(name)
+            continue
+
+        filePath := PROMPT_FILE_PATHS.Has(name) ? PROMPT_FILE_PATHS[name] : ""
+        if (filePath = "" || usedPaths.Has(filePath)) {
+            filePath := GetUniquePromptFilePath(name, usedPaths)
         }
+
+        WritePromptFile(
+            filePath,
+            name,
+            COMMAND_PROMPTS[name],
+            COMMAND_PROVIDERS.Has(name) ? COMMAND_PROVIDERS[name] : "",
+            COMMAND_MODELS.Has(name) ? COMMAND_MODELS[name] : "",
+            COMMAND_HOTKEYS.Has(name) ? COMMAND_HOTKEYS[name] : "",
+            COMMAND_CONFIRMS.Has(name) && COMMAND_CONFIRMS[name]
+        )
+
+        desiredPaths[name] := filePath
+        usedPaths[filePath] := true
     }
 
-    ; Build JSON
-    json := "{`n"
-    for i, name in ALL_COMMAND_NAMES {
-        if (i > 1)
-            json .= ",`n"
-
-        ; Determine value to write
-        providerPrefix := ""
-        if COMMAND_PROVIDERS.Has(name)
-            providerPrefix := Trim(COMMAND_PROVIDERS[name])
-
-        modelPrefix := ""
-        if COMMAND_MODELS.Has(name)
-            modelPrefix := Trim(COMMAND_MODELS[name])
-
-        prefix := ""
-        if (providerPrefix != "")
-            prefix .= "@provider:" . providerPrefix . "`n"
-        if (modelPrefix != "")
-            prefix .= "@model:" . modelPrefix . "`n"
-
-        if fileRefs.Has(name) {
-            hotkeyPrefix := ""
-            if COMMAND_HOTKEYS.Has(name)
-                hotkeyPrefix := Trim(COMMAND_HOTKEYS[name])
-            if (hotkeyPrefix != "")
-                prefix .= "@hotkey:" . hotkeyPrefix . "`n"
-            if (COMMAND_CONFIRMS.Has(name) && COMMAND_CONFIRMS[name])
-                prefix .= "@confirm:true`n"
-
-            val := fileRefs[name]
-            val := prefix . val
-            json .= '  "' . EscJsonFile(name) . '": "' . EscJsonFile(val) . '"'
-        } else {
-            hotkeyPrefix := ""
-            if COMMAND_HOTKEYS.Has(name)
-                hotkeyPrefix := Trim(COMMAND_HOTKEYS[name])
-            if (hotkeyPrefix != "")
-                prefix .= "@hotkey:" . hotkeyPrefix . "`n"
-            if (COMMAND_CONFIRMS.Has(name) && COMMAND_CONFIRMS[name])
-                prefix .= "@confirm:true`n"
-
-            promptVal := COMMAND_PROMPTS.Has(name) ? COMMAND_PROMPTS[name] : ""
-            promptVal := prefix . promptVal
-            json .= '  "' . EscJsonFile(name) . '": "' . EscJsonFile(promptVal) . '"'
-        }
+    for _, existingPath in PROMPT_FILE_PATHS {
+        if !usedPaths.Has(existingPath)
+            try FileDelete(existingPath)
     }
-    json .= "`n}`n"
 
-    ; Write file
-    try FileDelete(PROMPTS_FILE)
-    FileAppend(json, PROMPTS_FILE, "UTF-8")
-    PROMPTS_LAST_MOD := FileGetTime(PROMPTS_FILE, "M")
+    PROMPT_FILE_PATHS := desiredPaths
+    PROMPTS_LAST_MOD := GetPromptsStorageFingerprint()
 }
 
-; Escape for writing to JSON file (newlines as \\n so LoadPrompts can decode them)
-EscJsonFile(s) {
-    s := StrReplace(s, "\", "\\")
-    s := StrReplace(s, '"', '\"')
-    s := StrReplace(s, "`n", "\\n")
-    s := StrReplace(s, "`r", "\r")
-    s := StrReplace(s, "`t", "\t")
-    return s
+EnsurePromptDirectoryStorage() {
+    global PROMPTS_LEGACY_FILE, PROMPTS_DIR
+
+    if !FileExist(PROMPTS_LEGACY_FILE)
+        return
+
+    if !DirExist(PROMPTS_DIR)
+        DirCreate(PROMPTS_DIR)
+
+    legacyPrompts := Map()
+    legacyProviders := Map()
+    legacyModels := Map()
+    legacyHotkeys := Map()
+    legacyConfirms := Map()
+    legacyNames := []
+    LoadLegacyPromptsJson(PROMPTS_LEGACY_FILE, &legacyPrompts, &legacyProviders, &legacyModels, &legacyHotkeys, &legacyConfirms, &legacyNames)
+
+    preferredPaths := Map(
+        "Como yo (español)", PROMPTS_DIR . "\como-yo.md",
+        "Like me (English)", PROMPTS_DIR . "\like-me.md"
+    )
+    usedPaths := Map()
+
+    for _, name in legacyNames {
+        path := preferredPaths.Has(name) ? preferredPaths[name] : GetUniquePromptFilePath(name, usedPaths)
+        WritePromptFile(
+            path,
+            name,
+            legacyPrompts[name],
+            legacyProviders.Has(name) ? legacyProviders[name] : "",
+            legacyModels.Has(name) ? legacyModels[name] : "",
+            legacyHotkeys.Has(name) ? legacyHotkeys[name] : "",
+            legacyConfirms.Has(name) && legacyConfirms[name]
+        )
+        usedPaths[path] := true
+    }
+
+    try FileDelete(PROMPTS_LEGACY_FILE)
+}
+
+LoadLegacyPromptsJson(jsonPath, &outPrompts, &outProviders, &outModels, &outHotkeys, &outConfirms, &outNames) {
+    outPrompts := Map()
+    outProviders := Map()
+    outModels := Map()
+    outHotkeys := Map()
+    outConfirms := Map()
+    outNames := []
+
+    if !FileExist(jsonPath)
+        return
+
+    content := FileRead(jsonPath, "UTF-8")
+    pos := 1
+    while (pos := RegExMatch(content, '"((?:[^"\\]|\\.)*?)"\s*:\s*"((?:[^"\\]|\\.)*?)"', &m, pos)) {
+        key := StrReplace(m[1], '\"', '"')
+        val := StrReplace(m[2], '\"', '"')
+        val := StrReplace(val, "\\n", "`n")
+        val := StrReplace(val, "\\\\", "\")
+
+        ExtractPromptDirectives(val, &providerId, &modelId, &bodyVal)
+        if (providerId != "")
+            outProviders[key] := providerId
+        if (modelId != "")
+            outModels[key] := modelId
+
+        loop {
+            nlPos := InStr(bodyVal, "`n")
+            if (nlPos > 0) {
+                line := Trim(SubStr(bodyVal, 1, nlPos - 1))
+                rest := LTrim(SubStr(bodyVal, nlPos + 1))
+            } else {
+                line := Trim(bodyVal)
+                rest := ""
+            }
+
+            lower := StrLower(line)
+            if (SubStr(lower, 1, 8) = "@hotkey:") {
+                outHotkeys[key] := Trim(SubStr(line, 9))
+                bodyVal := rest
+                continue
+            }
+            if (SubStr(lower, 1, 9) = "@confirm:") {
+                if ParseDirectiveBool(SubStr(line, 10))
+                    outConfirms[key] := true
+                bodyVal := rest
+                continue
+            }
+            break
+        }
+
+        outPrompts[key] := bodyVal
+        outNames.Push(key)
+        pos += m.Len
+    }
+}
+
+ParsePromptFile(filePath, &nameOut, &bodyOut, &providerOut, &modelOut, &hotkeyOut, &confirmOut) {
+    content := FileRead(filePath, "UTF-8")
+    lines := StrSplit(content, "`n", "`r")
+    nameOut := ""
+    bodyOut := ""
+    providerOut := ""
+    modelOut := ""
+    hotkeyOut := ""
+    confirmOut := false
+    bodyStarted := false
+
+    for _, rawLine in lines {
+        line := bodyStarted ? rawLine : Trim(rawLine)
+        lower := StrLower(line)
+        if !bodyStarted && (SubStr(lower, 1, 6) = "@name:") {
+            nameOut := Trim(SubStr(line, 7))
+            continue
+        }
+        if !bodyStarted && (SubStr(lower, 1, 10) = "@provider:") {
+            providerOut := NormalizeProvider(Trim(SubStr(line, 11)))
+            continue
+        }
+        if !bodyStarted && (SubStr(lower, 1, 7) = "@model:") {
+            modelOut := Trim(SubStr(line, 8))
+            continue
+        }
+        if !bodyStarted && (SubStr(lower, 1, 8) = "@hotkey:") {
+            hotkeyOut := Trim(SubStr(line, 9))
+            continue
+        }
+        if !bodyStarted && (SubStr(lower, 1, 9) = "@confirm:") {
+            confirmOut := ParseDirectiveBool(SubStr(line, 10))
+            continue
+        }
+        if !bodyStarted && Trim(line) = "" {
+            bodyStarted := true
+            continue
+        }
+        bodyStarted := true
+        bodyOut .= (bodyOut = "" ? "" : "`n") . rawLine
+    }
+
+    if (Trim(nameOut) = "")
+        return
+}
+
+WritePromptFile(filePath, promptName, promptBody, providerId := "", modelId := "", hotkeyVal := "", confirmVal := false) {
+    content := "@name:" . promptName . "`n"
+    if (Trim(providerId) != "")
+        content .= "@provider:" . providerId . "`n"
+    if (Trim(modelId) != "")
+        content .= "@model:" . modelId . "`n"
+    if (Trim(hotkeyVal) != "")
+        content .= "@hotkey:" . hotkeyVal . "`n"
+    if confirmVal
+        content .= "@confirm:true`n"
+    content .= "`n" . promptBody
+
+    try FileDelete(filePath)
+    FileAppend(content, filePath, "UTF-8")
+}
+
+GetUniquePromptFilePath(promptName, usedPaths) {
+    global PROMPTS_DIR
+    baseName := SanitizePromptFileName(promptName)
+    if (baseName = "")
+        baseName := "prompt"
+    candidate := PROMPTS_DIR . "\" . baseName . ".md"
+    idx := 2
+    while (usedPaths.Has(candidate) || FileExist(candidate)) {
+        candidate := PROMPTS_DIR . "\" . baseName . "-" . idx . ".md"
+        idx += 1
+    }
+    return candidate
+}
+
+SanitizePromptFileName(promptName) {
+    fileName := Trim(promptName)
+    fileName := RegExReplace(fileName, '[<>:"/\\|?*\x00-\x1F]', "-")
+    fileName := RegExReplace(fileName, "\s+", "-")
+    fileName := RegExReplace(fileName, "-{2,}", "-")
+    fileName := Trim(fileName, "-. ")
+    return fileName
+}
+
+GetPromptsStorageFingerprint() {
+    global PROMPTS_DIR
+    if !DirExist(PROMPTS_DIR)
+        return ""
+    dirStamp := FileGetTime(PROMPTS_DIR, "M")
+    fileCount := 0
+    totalSize := 0
+    Loop Files, PROMPTS_DIR . "\*.md", "F" {
+        fileCount += 1
+        totalSize += A_LoopFileSize
+    }
+    return dirStamp . "|" . fileCount . "|" . totalSize
 }
 
 ParseDirectiveBool(rawValue) {
@@ -1476,7 +1609,7 @@ HandlePromptConfirmAction(action, rawJson := "") {
 }
 
 ; ============================================================
-; PROMPTS: loaded from prompts.json, auto-reloaded on change
+; PROMPTS: loaded from prompt files under prompts/, auto-reloaded on change
 ; ============================================================
 global COMMAND_PROMPTS := Map()
 global COMMAND_PROVIDERS := Map()
@@ -1484,114 +1617,70 @@ global COMMAND_MODELS := Map()
 global COMMAND_HOTKEYS := Map()
 global COMMAND_CONFIRMS := Map()
 global PROMPT_HOTKEY_MAP := Map()
+global PROMPT_FILE_PATHS := Map()
 global ALL_COMMAND_NAMES := []
-global PROMPTS_FILE := A_ScriptDir . "\prompts.json"
+global PROMPTS_DIR := A_ScriptDir . "\prompts"
+global PROMPTS_LEGACY_FILE := A_ScriptDir . "\prompts.json"
 global PROMPTS_LAST_MOD := ""
 ChordSetTimeout(0.9)
 
 LoadPrompts() {
-    global COMMAND_PROMPTS, COMMAND_PROVIDERS, COMMAND_MODELS, COMMAND_HOTKEYS, COMMAND_CONFIRMS, ALL_COMMAND_NAMES, PROMPTS_FILE, PROMPTS_LAST_MOD
+    global COMMAND_PROMPTS, COMMAND_PROVIDERS, COMMAND_MODELS, COMMAND_HOTKEYS, COMMAND_CONFIRMS
+    global ALL_COMMAND_NAMES, PROMPTS_DIR, PROMPTS_LEGACY_FILE, PROMPTS_LAST_MOD, PROMPT_FILE_PATHS
 
-    if !FileExist(PROMPTS_FILE) {
-        ShowTip("prompts.json not found!", 5000)
+    EnsurePromptDirectoryStorage()
+
+    if !DirExist(PROMPTS_DIR) {
+        ShowTip("prompts folder not found!", 5000)
         return
     }
 
-    PROMPTS_LAST_MOD := FileGetTime(PROMPTS_FILE, "M")
-    content := FileRead(PROMPTS_FILE, "UTF-8")
-
-    ; Validate: must be a JSON object (starts with { and ends with })
-    if !RegExMatch(Trim(content), "^\{[\s\S]*\}$") {
-        ShowTip("prompts.json is not valid JSON (missing braces)", 5000)
-        return
-    }
-
-    ; Parse flat JSON object: { "key": "value", ... }
     newPrompts := Map()
     newProviders := Map()
     newModels := Map()
     newHotkeys := Map()
     newConfirms := Map()
+    newPaths := Map()
     newNames := []
-    pos := 1
-    while (pos := RegExMatch(content, '"((?:[^"\\]|\\.)*?)"\s*:\s*"((?:[^"\\]|\\.)*?)"', &m, pos)) {
-        key := StrReplace(m[1], '\"', '"')
-        val := StrReplace(m[2], '\"', '"')
-        val := StrReplace(val, "\\n", "`n")
-        val := StrReplace(val, "\\\\", "\")
 
-        ; Extract optional metadata directives before loading body
-        ExtractPromptDirectives(val, &providerId, &modelId, &bodyVal)
+    Loop Files, PROMPTS_DIR . "\*.md", "F" {
+        filePath := A_LoopFileFullPath
+        promptName := ""
+        promptBody := ""
+        providerId := ""
+        modelId := ""
+        hotkeyVal := ""
+        confirmVal := false
+        ParsePromptFile(filePath, &promptName, &promptBody, &providerId, &modelId, &hotkeyVal, &confirmVal)
+        if (Trim(promptName) = "")
+            continue
+
+        newPrompts[promptName] := promptBody
         if (providerId != "")
-            newProviders[key] := providerId
+            newProviders[promptName] := providerId
         if (modelId != "")
-            newModels[key] := modelId
-
-        ; Parse additional directives left at the top (supports mixed order).
-        loop {
-            nlPos := InStr(bodyVal, "`n")
-            if (nlPos > 0) {
-                line := Trim(SubStr(bodyVal, 1, nlPos - 1))
-                rest := LTrim(SubStr(bodyVal, nlPos + 1))
-            } else {
-                line := Trim(bodyVal)
-                rest := ""
-            }
-
-            lower := StrLower(line)
-            if (SubStr(lower, 1, 10) = "@provider:") {
-                candidateProvider := StrLower(Trim(SubStr(line, 11)))
-                if IsValidProvider(candidateProvider)
-                    newProviders[key] := candidateProvider
-                bodyVal := rest
-                continue
-            }
-            if (SubStr(lower, 1, 7) = "@model:") {
-                newModels[key] := Trim(SubStr(line, 8))
-                bodyVal := rest
-                continue
-            }
-            if (SubStr(lower, 1, 8) = "@hotkey:") {
-                newHotkeys[key] := Trim(SubStr(line, 9))
-                bodyVal := rest
-                continue
-            }
-            if (SubStr(lower, 1, 9) = "@confirm:") {
-                if ParseDirectiveBool(SubStr(line, 10))
-                    newConfirms[key] := true
-                else if newConfirms.Has(key)
-                    newConfirms.Delete(key)
-                bodyVal := rest
-                continue
-            }
-            break
-        }
-
-        ; Support @file: references — load content from external file
-        if (SubStr(bodyVal, 1, 6) = "@file:") {
-            filePath := A_ScriptDir . "\" . SubStr(bodyVal, 7)
-            if FileExist(filePath)
-                bodyVal := FileRead(filePath, "UTF-8")
-            else
-                bodyVal := "ERROR: File not found: " . filePath
-        }
-
-        newPrompts[key] := bodyVal
-        newNames.Push(key)
-        pos += m.Len
+            newModels[promptName] := modelId
+        if (hotkeyVal != "")
+            newHotkeys[promptName] := hotkeyVal
+        if confirmVal
+            newConfirms[promptName] := true
+        newPaths[promptName] := filePath
+        newNames.Push(promptName)
     }
 
-    ; Validate: at least one command was parsed
     if (newNames.Length = 0) {
-        ShowTip("prompts.json has no valid commands", 5000)
+        ShowTip("prompts folder has no valid prompt files", 5000)
         return
     }
 
     COMMAND_PROMPTS := newPrompts
     COMMAND_PROVIDERS := newProviders
     COMMAND_MODELS := newModels
+    COMMAND_HOTKEYS := newHotkeys
     COMMAND_CONFIRMS := newConfirms
     ALL_COMMAND_NAMES := newNames
+    PROMPT_FILE_PATHS := newPaths
+    PROMPTS_LAST_MOD := GetPromptsStorageFingerprint()
     RegisterPromptHotkeys(newHotkeys)
 }
 
@@ -1714,10 +1803,10 @@ ExecutePromptSilently(promptName, *) {
 }
 
 CheckPromptsReload() {
-    global PROMPTS_FILE, PROMPTS_LAST_MOD
-    if !FileExist(PROMPTS_FILE)
+    global PROMPTS_LAST_MOD
+    currentMod := GetPromptsStorageFingerprint()
+    if (currentMod = "")
         return
-    currentMod := FileGetTime(PROMPTS_FILE, "M")
     if (currentMod != PROMPTS_LAST_MOD) {
         LoadPrompts()
         SendCommandsToPickerUI()

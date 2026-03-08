@@ -22,19 +22,22 @@ AHK v2 system tray app for text processing via Claude/OpenRouter. Runs on Window
 - UTF-8 everywhere.
 - **WebViewToo** is the only external dependency (for WebView2 GUI). Included in `lib/`.
 - JSON built via string concatenation, parsed with RegEx.
-- Long prompts go in `prompts/` as `.md` files, referenced with `@file:` in `prompts.json`.
+- Prompts live directly in `prompts/` as `.md` files.
 
 ## Files
 
 - `ai-assistant.ahk` — main entry point (tray, hotkeys, WebView GUI, .env loading).
-- `ui/index.html` — WebView2 UI (HTML/CSS/JS, single file).
+- `ui/iterative.html` — Prompt Chat UI.
 - `ui/picker.html` — Prompt Picker popup (filterable spotlight-style, pre-loaded at startup).
+- `ui/settings.html` — Settings window.
+- `ui/prompt-editor.html` — Prompt editor.
+- `ui/prompt-confirm.html` — Confirmation dialog for hotkey prompts.
+- `ui/shared.css` + `ui/window-ui.js` + `ui/ahk-bridge.js` — shared UI assets.
 - `lib/api.ahk` — OpenRouter API calls, UTF-8 handling.
 - `lib/prompts.ahk` — style definitions, task prompts, GetSystemPrompt().
 - `lib/lang.ahk` — language detection.
 - `lib/WebViewToo.ahk` + `lib/WebView2.ahk` + DLLs — WebView2 library.
-- `prompts.json` — command definitions (hot-reloaded every 5s).
-- `prompts/*.md` — long prompt files.
+- `prompts/*.md` — command definitions (hot-reloaded every 5s).
 - `.env` — API key (gitignored, never commit).
 - `model.conf` — persisted selected model.
 - `settings.conf` — all other persistent settings (key=value, one per line).
@@ -119,16 +122,25 @@ The AHK handler only extracts the `action` field via RegEx, then defers. If the 
 - `SaveSelectedModel(id)` / loaded via `LoadModel()` — uses `model.conf`.
 - Window sizes are saved to `settings.conf` on close (e.g. `settings_w`, `settings_h`).
 
-### prompts.json — special directives
+### Prompt files — special directives
 
-Values in `prompts.json` support optional prefixes parsed in a loop at load time in `LoadPrompts()` (order-independent, stripped from the front):
-- `@file:filename.md` — loads prompt text from `prompts/filename.md`
-- `@model:model-id\n` — sets a per-command model override
-- `@hotkey:ahkKey\n` — registers a global hotkey that silently processes selected text (or clipboard) and replaces/pastes the result without showing a window
+Prompt files in `prompts/*.md` support optional header directives parsed in `LoadPrompts()`:
+- `@name:Prompt Name` — display name shown in the UI
+- `@provider:provider-id` — sets a per-command provider override
+- `@model:model-id` — sets a per-command model override
+- `@hotkey:ahkKey` — registers a global hotkey that silently processes selected text (or clipboard) and replaces/pastes the result without showing a window
+- `@confirm:true` — shows the confirmation dialog before a hotkey prompt runs
 
-Example: `"@hotkey:!+1\n@model:google/gemini-flash-1.5\nCorregí el texto..."`
+Example:
+```md
+@name:Quick translate
+@hotkey:!+1
+@model:google/gemini-flash-1.5
 
-The file is hot-reloaded every 5 seconds. `SavePromptsJson()` must preserve `@file:` references and serialize `@hotkey:`/`@model:` directives back.
+Corregí el texto...
+```
+
+The `prompts/` folder is hot-reloaded every 5 seconds. `SavePromptFiles()` persists prompt metadata back into the corresponding `.md` file.
 
 ### UI files — no build step
 

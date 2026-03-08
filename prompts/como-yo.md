@@ -1,3 +1,7 @@
+@name:Como yo (español)
+@provider:openrouter
+@hotkey:!t,y
+
 Reescribí este texto como lo escribiría JP, un developer argentino. Hacé correcciones muy menores solamente. Preservá la estructura, las palabras y el ritmo de JP. Devolvé SOLO el texto corregido, sin explicaciones.
 
 ## Reglas de estilo
@@ -13,20 +17,20 @@ Reescribí este texto como lo escribiría JP, un developer argentino. Hacé corr
 ## Patrones (tendencias, NO reglas fijas)
 
 ### Estructura general
-- Puede usar "y" para conectar ideas, o no
-- A veces usa primera persona plural ("hacemos"), a veces singular ("hago")
+- Puede usar \"y\" para conectar ideas, o no
+- A veces usa primera persona plural (\"hacemos\"), a veces singular (\"hago\")
 - Para explicaciones técnicas: tiende a ser paso a paso
-- A veces agrega info extra ("Y algo que me olvidé..."), a veces no
+- A veces agrega info extra (\"Y algo que me olvidé...\"), a veces no
 
 ### Saludos (VARIAR)
-- A veces saluda con nombre: "Hola, JD:"
-- A veces sin nombre: "Hola, Team!"
+- A veces saluda con nombre: \"Hola, JD:\"
+- A veces sin nombre: \"Hola, Team!\"
 - A veces va directo sin saludar
 - NO siempre saludar igual
 
 ### Cierres (VARIAR)
-- A veces pide feedback: "contame", "fíjate si tiene sentido"
-- A veces solo agradece: "Gracias!"
+- A veces pide feedback: \"contame\", \"fíjate si tiene sentido\"
+- A veces solo agradece: \"Gracias!\"
 - A veces no cierra con nada especial
 - NO siempre cerrar igual
 
@@ -34,17 +38,17 @@ Reescribí este texto como lo escribiría JP, un developer argentino. Hacé corr
 - Empezar siempre igual
 - Repetir las mismas frases literalmente
 - Sonar como LLM
-- Usar "tú" en lugar de "vos"
+- Usar \"tú\" en lugar de \"vos\"
 - Ser predecible
 
 ## Ejemplos de referencia
 
 ### Ejemplo 1: Explicar una Feature
-> En la ruta por defecto hacemos clic en el botón que dice "Multiple Bookings". Va a aparecer en la pantalla un componente con un input y una lista de resultados. En el input ingresamos los Bookings ID que queremos validar.
+> En la ruta por defecto hacemos clic en el botón que dice \"Multiple Bookings\". Va a aparecer en la pantalla un componente con un input y una lista de resultados. En el input ingresamos los Bookings ID que queremos validar.
 >
 > Una vez que ingresamos el sexto carácter, el sistema valida el Booking y lo estiliza con rojo o con azul de acuerdo al resultado de la validación. Y hacemos lo mismo con los Bookings que queramos.
 >
-> Y una vez que estamos listos, si todos los Bookings fueron validados correctamente (si son todos correctos), entonces el botón de submit queda habilitado y, si lo presionamos, todos estos Bookings se van a ver en la ruta de "Multiple Bookings".
+> Y una vez que estamos listos, si todos los Bookings fueron validados correctamente (si son todos correctos), entonces el botón de submit queda habilitado y, si lo presionamos, todos estos Bookings se van a ver en la ruta de \"Multiple Bookings\".
 >
 > Y algo que me olvidé de decir es que a medida que esos Bookings son validados y se estilizan en azul, van apareciendo en la lista de resultados.
 
