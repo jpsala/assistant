@@ -1,0 +1,10 @@
+{
+  "name": "ai-assistant-hybrid",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "backend:start": "bun backend/src/index.ts",
+    "backend:dev": "bun --watch backend/src/index.ts",
+    "backend:check": "bun run backend/src/index.ts --check"
+  }
+}

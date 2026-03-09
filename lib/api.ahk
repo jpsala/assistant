@@ -3,6 +3,7 @@
 
 SETTINGS_FILE := A_ScriptDir . "\settings.conf"
 MODEL_CONFIG_FILE := A_ScriptDir . "\model.conf"
+BACKEND_DEFAULT_URL := "http://127.0.0.1:8765"
 DEFAULT_PROVIDER := "openrouter"
 DEFAULT_MODELS := Map(
     "openrouter", "anthropic/claude-sonnet-4-5",
@@ -11,6 +12,8 @@ DEFAULT_MODELS := Map(
     "xai", "grok-3-mini"
 )
 VALID_PROVIDERS := ["openrouter", "openai", "anthropic", "xai"]
+global BACKEND_READY := false
+global BACKEND_BOOT_ATTEMPTED := false
 
 API_PROVIDER := LoadSelectedProvider()
 API_MODEL := LoadSelectedModel(API_PROVIDER)
@@ -36,6 +39,9 @@ CallProvider(userMessage, systemPrompt, provider, apiKey, model := "") {
             model := LoadSelectedModel(provider)
     }
 
+    if EnsureBackendServer()
+        return CallProviderViaBackend(userMessage, systemPrompt, provider, model)
+
     payload := BuildPayload(provider, userMessage, systemPrompt, model)
 
     whr := ComObject("WinHttp.WinHttpRequest.5.1")
@@ -48,6 +54,16 @@ CallProvider(userMessage, systemPrompt, provider, apiKey, model := "") {
         throw Error("HTTP " . whr.Status . ": " . SubStr(ReadUTF8(whr), 1, 300))
 
     return ParseContent(provider, ReadUTF8(whr))
+}
+
+CallProviderViaBackend(userMessage, systemPrompt, provider, model) {
+    payload := '{"provider":"' . EscJson(provider) . '","model":"' . EscJson(model) . '","systemPrompt":"' . EscJson(systemPrompt) . '","userMessage":"' . EscJson(userMessage) . '"}'
+    rawJson := HttpRequest("POST", GetBackendBaseUrl() . "/v1/chat", payload, Map("Content-Type", "application/json"))
+    if RegExMatch(rawJson, '"error"\s*:\s*"((?:[^"\\]|\\.)*)"', &mErr)
+        throw Error(JsonUnescape(mErr[1]))
+    if !RegExMatch(rawJson, '"content"\s*:\s*"((?:[^"\\]|\\.)*)"', &mContent)
+        throw Error("Could not parse backend response: " . SubStr(rawJson, 1, 300))
+    return Trim(JsonUnescape(mContent[1]))
 }
 
 ; Build provider-specific payload
@@ -141,6 +157,67 @@ ReadUTF8(whr) {
     result := oADO.ReadText()
     oADO.Close()
     return result
+}
+
+HttpRequest(method, url, payload := "", headers := "") {
+    whr := ComObject("WinHttp.WinHttpRequest.5.1")
+    whr.Open(method, url, false)
+    if IsObject(headers) {
+        for headerName, headerValue in headers
+            whr.SetRequestHeader(headerName, headerValue)
+    }
+    whr.Send(payload)
+    if (whr.Status < 200 || whr.Status >= 300)
+        throw Error("HTTP " . whr.Status . ": " . SubStr(ReadUTF8(whr), 1, 300))
+    return ReadUTF8(whr)
+}
+
+GetBackendBaseUrl() {
+    global BACKEND_DEFAULT_URL
+    configured := Trim(ReadSetting("backend_url"))
+    return configured != "" ? configured : BACKEND_DEFAULT_URL
+}
+
+BackendHealthCheck() {
+    try {
+        rawJson := HttpRequest("GET", GetBackendBaseUrl() . "/health")
+        return InStr(rawJson, '"ok":true')
+    } catch {
+        return false
+    }
+}
+
+EnsureBackendServer() {
+    global BACKEND_READY, BACKEND_BOOT_ATTEMPTED
+
+    if (BACKEND_READY && BackendHealthCheck())
+        return true
+
+    if BackendHealthCheck() {
+        BACKEND_READY := true
+        return true
+    }
+
+    if BACKEND_BOOT_ATTEMPTED
+        return false
+    BACKEND_BOOT_ATTEMPTED := true
+
+    backendEntry := A_ScriptDir . "\backend\src\index.ts"
+    if !FileExist(backendEntry)
+        return false
+
+    try Run('bun "' . backendEntry . '"', A_ScriptDir, "Hide")
+    catch
+        return false
+
+    Loop 20 {
+        Sleep(250)
+        if BackendHealthCheck() {
+            BACKEND_READY := true
+            return true
+        }
+    }
+    return false
 }
 
 ; Escape a string for use inside a JSON string value
@@ -373,6 +450,9 @@ FetchModels(provider, apiKey) {
     if (Trim(apiKey) = "")
         throw Error("Missing API key for provider: " . provider)
 
+    if EnsureBackendServer()
+        return FetchModelsViaBackend(provider)
+
     whr := ComObject("WinHttp.WinHttpRequest.5.1")
     whr.Open("GET", GetProviderModelsUrl(provider), false)
     ApplyProviderHeaders(whr, provider, apiKey)
@@ -382,6 +462,13 @@ FetchModels(provider, apiKey) {
         throw Error("HTTP " . whr.Status . " fetching models")
 
     rawJson := ReadUTF8(whr)
+    return ParseModels(provider, rawJson)
+}
+
+FetchModelsViaBackend(provider) {
+    rawJson := HttpRequest("GET", GetBackendBaseUrl() . "/v1/models?provider=" . provider)
+    if RegExMatch(rawJson, '"error"\s*:\s*"((?:[^"\\]|\\.)*)"', &mErr)
+        throw Error(JsonUnescape(mErr[1]))
     return ParseModels(provider, rawJson)
 }
 

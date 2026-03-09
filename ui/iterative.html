@@ -302,12 +302,14 @@
 <script src="window-ui.js"></script>
 <script>
   let conversationState = {
+    sessionId: '',
     original: '',
     provider: '',
     providerLabel: '',
     model: '',
     messages: []
   };
+  const backendBaseUrl = 'http://127.0.0.1:8765';
   window.__promptChatPendingMessage = '';
   window.__promptChatPendingTranscript = '';
   window.__promptChatPendingProvider = '';
@@ -315,6 +317,8 @@
   let promptCatalog = [];
   let slashMatches = [];
   let slashActiveIndex = -1;
+  let saveConversationTimer = 0;
+  let promptWatch = null;
 
   const originalText = document.getElementById('original-text');
   const sessionMeta = document.getElementById('session-meta');
@@ -331,6 +335,10 @@
     statusEl.textContent = text || '';
   }
 
+  function updateSessionMeta() {
+    sessionMeta.textContent = [conversationState.providerLabel, conversationState.model].filter(Boolean).join(' · ') || 'Conversation';
+  }
+
   function setPromptCatalog(data) {
     if (typeof data === 'string') data = JSON.parse(data);
     promptCatalog = data || [];
@@ -339,6 +347,7 @@
   function setConversationData(data) {
     if (typeof data === 'string') data = JSON.parse(data);
     conversationState = {
+      sessionId: data.sessionId || data.id || conversationState.sessionId || crypto.randomUUID(),
       original: data.original || '',
       provider: data.provider || '',
       providerLabel: data.providerLabel || '',
@@ -346,8 +355,9 @@
       messages: Array.isArray(data.messages) ? data.messages.slice() : []
     };
     originalText.value = conversationState.original;
-    sessionMeta.textContent = [conversationState.providerLabel, conversationState.model].filter(Boolean).join(' · ') || 'Conversation';
+    updateSessionMeta();
     renderMessages();
+    queueConversationSave();
     setStatus('Ready');
   }
 
@@ -376,6 +386,134 @@
       chatHistory.appendChild(row);
     }
     chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  function queueConversationSave() {
+    clearTimeout(saveConversationTimer);
+    saveConversationTimer = setTimeout(() => {
+      saveConversation().catch(() => {});
+    }, 250);
+  }
+
+  async function saveConversation() {
+    if (!conversationState.sessionId) {
+      conversationState.sessionId = crypto.randomUUID();
+    }
+    await fetch(`${backendBaseUrl}/v1/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: conversationState.sessionId,
+        original: conversationState.original,
+        provider: conversationState.provider,
+        providerLabel: conversationState.providerLabel,
+        model: conversationState.model,
+        messages: conversationState.messages
+      })
+    });
+  }
+
+  async function streamAssistantReply(transcript, provider, model) {
+    const response = await fetch(`${backendBaseUrl}/v1/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'prompt-chat',
+        transcript,
+        provider,
+        model
+      })
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(await response.text() || `HTTP ${response.status}`);
+    }
+
+    const assistantMessage = {
+      role: 'assistant',
+      content: '',
+      providerLabel: conversationState.providerLabel,
+      model: model || conversationState.model
+    };
+    conversationState.messages.push(assistantMessage);
+    renderMessages();
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+
+      for (const block of blocks) {
+        const eventMatch = block.match(/event:\s*([^\n\r]+)/);
+        const dataLine = block.split(/\r?\n/).find((line) => line.startsWith('data:'));
+        if (!dataLine) continue;
+
+        let data;
+        try {
+          data = JSON.parse(dataLine.slice(5).trim());
+        } catch (e) {
+          continue;
+        }
+
+        const eventName = eventMatch ? eventMatch[1].trim() : 'message';
+        if (eventName === 'start') {
+          conversationState.provider = data.provider || conversationState.provider;
+          conversationState.providerLabel = data.providerLabel || conversationState.providerLabel;
+          conversationState.model = data.model || conversationState.model;
+          assistantMessage.providerLabel = conversationState.providerLabel;
+          assistantMessage.model = conversationState.model;
+          updateSessionMeta();
+          setStatus(`Streaming with ${assistantMessage.providerLabel} · ${assistantMessage.model}...`);
+          renderMessages();
+          continue;
+        }
+
+        if (eventName === 'delta') {
+          assistantMessage.content += data.delta || '';
+          renderMessages();
+          continue;
+        }
+
+        if (eventName === 'done') {
+          assistantMessage.content = data.content || assistantMessage.content;
+          assistantMessage.providerLabel = data.providerLabel || assistantMessage.providerLabel;
+          assistantMessage.model = data.model || assistantMessage.model;
+          conversationState.provider = data.provider || conversationState.provider;
+          conversationState.providerLabel = assistantMessage.providerLabel || conversationState.providerLabel;
+          conversationState.model = assistantMessage.model || conversationState.model;
+          updateSessionMeta();
+          renderMessages();
+          queueConversationSave();
+          setStatus('Done');
+        }
+      }
+    }
+  }
+
+  function connectPromptWatch() {
+    try {
+      promptWatch = new EventSource(`${backendBaseUrl}/v1/prompts/watch`);
+      promptWatch.addEventListener('prompts', (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (Array.isArray(payload.prompts)) {
+            promptCatalog = payload.prompts;
+          }
+        } catch (e) {}
+      });
+      promptWatch.onerror = () => {
+        try { promptWatch.close(); } catch (e) {}
+        promptWatch = null;
+        setTimeout(connectPromptWatch, 3000);
+      };
+    } catch (e) {}
   }
 
   function getSlashQuery() {
@@ -495,7 +633,7 @@
     return '';
   }
 
-  function sendComposerMessage() {
+  async function sendComposerMessage() {
     const message = composerInput.value.trim();
     if (!message) {
       setStatus('Write a message first');
@@ -517,9 +655,22 @@
     window.__promptChatPendingTranscript = transcript;
     window.__promptChatPendingProvider = parsed.promptRef && parsed.promptRef.provider ? parsed.promptRef.provider : conversationState.provider;
     window.__promptChatPendingModel = parsed.promptRef && parsed.promptRef.model ? parsed.promptRef.model : conversationState.model;
-    post('send', {
-      message: 'pending'
-    });
+    queueConversationSave();
+
+    try {
+      await streamAssistantReply(
+        transcript,
+        window.__promptChatPendingProvider,
+        window.__promptChatPendingModel
+      );
+      clearPendingSendPayload();
+      focusComposer();
+    } catch (error) {
+      setStatus('Backend unavailable, falling back...');
+      post('send', {
+        message: 'pending'
+      });
+    }
   }
 
   function onAssistantReply(data) {
@@ -530,7 +681,12 @@
       providerLabel: data.providerLabel || conversationState.providerLabel,
       model: data.model || conversationState.model
     });
+    conversationState.provider = data.provider || conversationState.provider;
+    conversationState.providerLabel = data.providerLabel || conversationState.providerLabel;
+    conversationState.model = data.model || conversationState.model;
+    updateSessionMeta();
     renderMessages();
+    queueConversationSave();
     setStatus('Done');
     focusComposer();
   }
@@ -609,6 +765,7 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     initWindowUI();
+    connectPromptWatch();
     post('ready');
   });
 </script>

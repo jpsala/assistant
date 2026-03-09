@@ -5,3 +5,4 @@ dist/
 *.zip
 settings.json
 pending.md
+data/

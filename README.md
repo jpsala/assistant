@@ -83,6 +83,30 @@ Translate this text to English. Keep the tone and meaning.
 - **GUI:** WebView2 (via WebViewToo library) — HTML/CSS/JS UI embedded in AHK window. Dark theme, `+AlwaysOnTop`, hides on close/escape
 - **AHK↔JS communication:** JS calls AHK via `window.chrome.webview.postMessage()`, AHK calls JS via `ExecuteScriptAsync()`
 
+## Hybrid Bun backend
+
+This branch adds an optional Bun sidecar under `backend/` and the AHK app now prefers it automatically when `bun` is available on `PATH`.
+
+What it improves today:
+
+- **Provider I/O in TypeScript:** provider payloads and response parsing move out of AHK regex-heavy code
+- **Streaming Prompt Chat:** `ui/iterative.html` now streams assistant tokens from the Bun backend when it is reachable, keeping the UI responsive
+- **Prompt watching:** backend exposes prompt catalog and SSE prompt updates using filesystem watching
+- **Conversation persistence:** Prompt Chat sessions are saved to `data/conversations/*.json`
+- **Safe fallback:** if the backend is unavailable, the app falls back to the previous direct AHK provider path
+
+Run the backend manually during development:
+
+```bash
+bun run backend:dev
+```
+
+Quick backend self-check:
+
+```bash
+bun run backend:check
+```
+
 ## Command metadata prefixes
 
 You can add optional metadata at the top of each prompt file:
