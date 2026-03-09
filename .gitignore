@@ -6,3 +6,4 @@ dist/
 settings.json
 pending.md
 data/
+node_modules/
