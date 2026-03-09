@@ -156,6 +156,8 @@
   let allCommands = [];
   let filteredCommands = [];
   let activeIdx = 0;
+  let promptWatch = null;
+  const backendBaseUrl = 'http://127.0.0.1:8765';
 
   // =============================================
   // DOM REFS
@@ -165,12 +167,49 @@
   const statusEl = document.getElementById('status');
 
   // =============================================
-  // AHK → JS
+  // Backend → JS
   // =============================================
+  async function fetchJson(path, options = {}) {
+    const response = await fetch(backendBaseUrl + path, options);
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (e) {}
+    if (!response.ok) {
+      throw new Error(payload && payload.error ? payload.error : `HTTP ${response.status}`);
+    }
+    return payload;
+  }
+
   function setCommands(data) {
-    if (typeof data === 'string') data = JSON.parse(data);
-    allCommands = data;
+    allCommands = (data || []).map((item) => ({
+      name: item.name || '',
+      hotkey: item.hotkey || '',
+      model: item.model || ''
+    }));
     applyFilter();
+  }
+
+  async function loadPromptCatalog() {
+    const payload = await fetchJson('/v1/prompts');
+    setCommands(payload.prompts || []);
+  }
+
+  function connectPromptWatch() {
+    try {
+      promptWatch = new EventSource(backendBaseUrl + '/v1/prompts/watch');
+      promptWatch.addEventListener('prompts', (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          setCommands(payload.prompts || []);
+        } catch (e) {}
+      });
+      promptWatch.onerror = () => {
+        try { promptWatch.close(); } catch (e) {}
+        promptWatch = null;
+        setTimeout(connectPromptWatch, 3000);
+      };
+    } catch (e) {}
   }
 
   // Called by AHK on every Show to reset state and focus
@@ -336,6 +375,10 @@
   // =============================================
   document.addEventListener('DOMContentLoaded', () => {
     initWindowUI({ persistTextareaSize: false });
+    connectPromptWatch();
+    loadPromptCatalog().catch(() => {
+      statusEl.textContent = 'Could not load prompts';
+    });
     postToAHK({ action: 'ready' });
   });
 </script>

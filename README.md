@@ -156,6 +156,7 @@ bun run backend:smoke
 - **Hotkey settings are more centralized** because the Settings UI now persists them through backend endpoints before AHK reloads registrations
 - **Prompt Editor is less coupled to AHK** because prompt CRUD and model loading now call Bun directly from the WebView
 - **Prompt Editor updates are more live** because it now listens to prompt watch events from Bun
+- **Prompt Picker is less coupled to AHK** because it now loads and watches the prompt catalog directly from Bun
 - **Prompt Chat sessions can persist across launches** through `data/conversations`
 - **Saved Prompt Chat sessions are now actually navigable from the UI** through the history panel
 - **Prompt updates can be pushed immediately** from the Bun backend instead of waiting for the 5-second AHK polling loop
@@ -171,7 +172,15 @@ bun run backend:smoke
 - Settings hotkey changes now persist through backend endpoints and then trigger AHK reload
 - `ui/settings.html` now talks directly to backend endpoints for provider/model/API key state
 - `ui/prompt-editor.html` now talks directly to backend endpoints for prompt CRUD and model loading
+- `ui/picker.html` now talks directly to backend endpoints for prompt catalog data
 - The repo has a small TypeScript toolchain (`package.json`, `tsconfig.json`, `bun.lock`)
+
+## CI
+
+GitHub Actions now validates the backend on Windows by running:
+
+- `.\node_modules\.bin\tsc.exe --noEmit`
+- `bun run backend:smoke`
 
 ## Command metadata prefixes
 

@@ -250,20 +250,6 @@ ResumePromptHotkeys() {
 
 RegisterHotkeys()
 
-BuildCommandsJson() {
-    global ALL_COMMAND_NAMES, COMMAND_MODELS, COMMAND_HOTKEYS
-    json := "["
-    for i, name in ALL_COMMAND_NAMES {
-        if (i > 1)
-            json .= ","
-        model   := COMMAND_MODELS.Has(name)  ? EscJson(COMMAND_MODELS[name])  : ""
-        hotkey  := COMMAND_HOTKEYS.Has(name) ? EscJson(COMMAND_HOTKEYS[name]) : ""
-        json .= '{"name":"' . EscJson(name) . '","model":"' . model . '","hotkey":"' . hotkey . '"}'
-    }
-    json .= "]"
-    return json
-}
-
 ; ============================================================
 ; SETTINGS WINDOW
 ; ============================================================
@@ -368,8 +354,6 @@ HandleSettingsAction(action, rawJson) {
                 SaveSelectedProvider(selectedProvider)
             EnsureActiveProviderHasKey()
             settingsGui.ExecuteScriptAsync('setStatus("Provider saved: ' . EscJson(ProviderDisplayName(API_PROVIDER)) . '")')
-            if IsObject(editorGui) && editorReady
-                SendModelsToEditor()
         }
 
     case "saveApiKeys":
@@ -393,9 +377,6 @@ HandleSettingsAction(action, rawJson) {
             settingsGui.ExecuteScriptAsync('setStatus("API keys saved")')
         else
             settingsGui.ExecuteScriptAsync('setStatus("Saved, but no API keys configured")')
-
-        if IsObject(editorGui) && editorReady
-            SendModelsToEditor()
 
     case "reloadHotkeys":
         try {
@@ -560,7 +541,6 @@ HandlePickerAction(action, rawJson) {
     switch action {
     case "ready":
         pickerReady := true
-        SendCommandsToPickerUI()
         ScheduleWindowFocus("picker", pickerGui, "resetAndFocus()", 1000)
 
     case "pick":
@@ -596,13 +576,6 @@ PickerWindowClose(*) {
     PersistWindowSize(pickerGui, "picker")
     pickerGui.Hide()
     return 1
-}
-
-SendCommandsToPickerUI() {
-    global pickerGui, pickerReady
-    if !IsObject(pickerGui) || !pickerReady
-        return
-    pickerGui.ExecuteScriptAsync("setCommands(" . BuildCommandsJson() . ")")
 }
 
 ; ============================================================
@@ -995,7 +968,6 @@ HandleEditorAction(action, rawJson := "") {
 
     case "promptsChanged":
         LoadPrompts()
-        SendCommandsToPickerUI()
         SendCommandsToIterativeUI()
         ResumeDynamicHotkeys()
         ResumePromptHotkeys()
@@ -1012,30 +984,6 @@ HandleEditorAction(action, rawJson := "") {
         editorGui.Hide()
         ResumeDynamicHotkeys()
         ResumePromptHotkeys()
-    }
-}
-
-SendModelsToEditor(provider := "") {
-    global editorGui, API_PROVIDER
-    if (Trim(provider) = "")
-        provider := API_PROVIDER
-    provider := NormalizeProvider(provider)
-    apiKey := GetProviderApiKey(provider)
-
-    if (apiKey = "") {
-        editorGui.ExecuteScriptAsync("setModels([])")
-        editorGui.ExecuteScriptAsync('setStatus("Missing API key for ' . EscJson(ProviderDisplayName(provider)) . '")')
-        return
-    }
-
-    try {
-        modelsJson := FetchModels(provider, apiKey)
-        editorGui.ExecuteScriptAsync("setModels(" . modelsJson . ")")
-        if (provider = API_PROVIDER)
-            editorGui.ExecuteScriptAsync('setDefaultProvider("' . EscJson(provider) . '")')
-        editorGui.ExecuteScriptAsync('setStatus("Models loaded from ' . EscJson(ProviderDisplayName(provider)) . '")')
-    } catch as e {
-        editorGui.ExecuteScriptAsync('setStatus("Error loading models: ' . EscJson(e.Message) . '")')
     }
 }
 
@@ -1097,89 +1045,6 @@ StripPromptMetadata(rawValue, &bodyOut) {
         }
         break
     }
-}
-
-SendPromptsToEditor() {
-    global editorGui, COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_HOTKEYS, COMMAND_CONFIRMS, ALL_COMMAND_NAMES
-    json := "["
-    for i, name in ALL_COMMAND_NAMES {
-        if (i > 1)
-            json .= ","
-        promptVal := COMMAND_PROMPTS.Has(name) ? COMMAND_PROMPTS[name] : ""
-        providerVal := COMMAND_PROVIDERS.Has(name) ? COMMAND_PROVIDERS[name] : ""
-        modelVal := COMMAND_MODELS.Has(name) ? COMMAND_MODELS[name] : ""
-        hotkeyVal := COMMAND_HOTKEYS.Has(name) ? COMMAND_HOTKEYS[name] : ""
-        confirmVal := (COMMAND_CONFIRMS.Has(name) && COMMAND_CONFIRMS[name]) ? "true" : "false"
-        json .= '{"name":"' . EscJson(name) . '","prompt":"' . EscJson(promptVal) . '","provider":"' . EscJson(providerVal) . '","model":"' . EscJson(modelVal) . '","hotkey":"' . EscJson(hotkeyVal) . '","confirm":' . confirmVal . ',"isFile":false}'
-    }
-    json .= "]"
-    editorGui.ExecuteScriptAsync("setPrompts(" . json . ")")
-}
-
-RebuildCommandNames() {
-    global COMMAND_PROMPTS, ALL_COMMAND_NAMES
-    ; Preserve order: keep existing names in order, append new ones
-    newNames := []
-    ; First keep existing ordered names that still exist
-    for i, name in ALL_COMMAND_NAMES {
-        if COMMAND_PROMPTS.Has(name)
-            newNames.Push(name)
-    }
-    ; Add any new names not in the list
-    for name, val in COMMAND_PROMPTS {
-        found := false
-        for i, existing in newNames {
-            if (existing = name) {
-                found := true
-                break
-            }
-        }
-        if !found
-            newNames.Push(name)
-    }
-    ALL_COMMAND_NAMES := newNames
-}
-
-SavePromptFiles() {
-    global COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_HOTKEYS, COMMAND_CONFIRMS
-    global ALL_COMMAND_NAMES, PROMPTS_DIR, PROMPTS_LAST_MOD, PROMPT_FILE_PATHS
-
-    if !DirExist(PROMPTS_DIR)
-        DirCreate(PROMPTS_DIR)
-
-    desiredPaths := Map()
-    usedPaths := Map()
-
-    for _, name in ALL_COMMAND_NAMES {
-        if !COMMAND_PROMPTS.Has(name)
-            continue
-
-        filePath := PROMPT_FILE_PATHS.Has(name) ? PROMPT_FILE_PATHS[name] : ""
-        if (filePath = "" || usedPaths.Has(filePath)) {
-            filePath := GetUniquePromptFilePath(name, usedPaths)
-        }
-
-        WritePromptFile(
-            filePath,
-            name,
-            COMMAND_PROMPTS[name],
-            COMMAND_PROVIDERS.Has(name) ? COMMAND_PROVIDERS[name] : "",
-            COMMAND_MODELS.Has(name) ? COMMAND_MODELS[name] : "",
-            COMMAND_HOTKEYS.Has(name) ? COMMAND_HOTKEYS[name] : "",
-            COMMAND_CONFIRMS.Has(name) && COMMAND_CONFIRMS[name]
-        )
-
-        desiredPaths[name] := filePath
-        usedPaths[filePath] := true
-    }
-
-    for _, existingPath in PROMPT_FILE_PATHS {
-        if !usedPaths.Has(existingPath)
-            try FileDelete(existingPath)
-    }
-
-    PROMPT_FILE_PATHS := desiredPaths
-    PROMPTS_LAST_MOD := GetPromptsStorageFingerprint()
 }
 
 EnsurePromptDirectoryStorage() {
@@ -1713,7 +1578,6 @@ CheckPromptsReload() {
         return
     if (currentMod != PROMPTS_LAST_MOD) {
         LoadPrompts()
-        SendCommandsToPickerUI()
         SendCommandsToIterativeUI()
         ShowTip("Prompts reloaded (" . ALL_COMMAND_NAMES.Length . " commands)", 2000)
     }

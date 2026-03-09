@@ -16,6 +16,37 @@ type PromptRecord = {
   isFile: boolean;
 };
 
+type SettingsSnapshot = {
+  provider: Provider;
+  providerLabel: string;
+  currentModel: string;
+  model_openrouter: string;
+  model_openai: string;
+  model_anthropic: string;
+  model_xai: string;
+  openrouterKey: string;
+  openaiKey: string;
+  anthropicKey: string;
+  xaiKey: string;
+  maxTokens: number;
+};
+
+type HotkeyRecord = {
+  id: string;
+  label: string;
+  ahkKey: string;
+};
+
+type PromptUpsertPayload = {
+  oldName?: string;
+  name?: string;
+  prompt?: string;
+  provider?: string;
+  model?: string;
+  hotkey?: string;
+  confirm?: boolean;
+};
+
 type ConversationSnapshot = {
   id?: string;
   original?: string;
@@ -202,7 +233,7 @@ async function saveSettingsPatch(patch: Record<string, string>): Promise<Record<
   return settings;
 }
 
-async function settingsSnapshot() {
+async function settingsSnapshot(): Promise<SettingsSnapshot> {
   const config = await loadConfig();
   return {
     provider: config.provider,
@@ -254,7 +285,7 @@ async function saveApiKeys(payload: {
   return settingsSnapshot();
 }
 
-async function hotkeysSnapshot() {
+async function hotkeysSnapshot(): Promise<HotkeyRecord[]> {
   const settings = await readKeyValueFile(SETTINGS_FILE);
   return Object.entries(HOTKEY_DEFAULTS).map(([id, defaultKey]) => ({
     id,
@@ -676,15 +707,7 @@ function buildPromptFileContent(prompt: {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-async function savePromptRecord(input: {
-  oldName?: string;
-  name?: string;
-  prompt?: string;
-  provider?: string;
-  model?: string;
-  hotkey?: string;
-  confirm?: boolean;
-}) {
+async function savePromptRecord(input: PromptUpsertPayload) {
   await mkdir(PROMPTS_DIR, { recursive: true });
   const prompts = await listPrompts();
   const oldName = String(input.oldName || "").trim();
@@ -994,15 +1017,7 @@ async function handleRequest(request: Request): Promise<Response> {
 
   if (url.pathname === "/v1/prompts" && request.method === "PUT") {
     try {
-      const body = await requestBody<{
-        oldName?: string;
-        name?: string;
-        prompt?: string;
-        provider?: string;
-        model?: string;
-        hotkey?: string;
-        confirm?: boolean;
-      }>(request);
+      const body = await requestBody<PromptUpsertPayload>(request);
       return json({ prompt: await savePromptRecord(body), prompts: await listPrompts() });
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });

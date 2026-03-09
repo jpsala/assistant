@@ -23,6 +23,7 @@ All notable changes to AI Assistant are documented in this file.
 - Settings WebView hotkey persistence now goes through Bun, then AHK reloads registrations from saved settings
 - Prompt Editor WebView now fetches/saves prompt data and models directly against Bun instead of routing prompt CRUD through AHK
 - Prompt Editor now listens to Bun prompt watch updates for live catalog refresh
+- Prompt Picker now loads and watches prompt catalog data directly from Bun instead of relying on AHK-injected command lists
 - Prompt Chat hotkey now captures active selection into a fresh session
 - Prompt Chat send behavior now favors `Enter` to send and `Shift+Enter` for newline
 - Repository docs now describe the hybrid AHK + Bun architecture instead of an AHK-only app
