@@ -42,6 +42,10 @@
     overflow: hidden;
   }
 
+  .section.section-allow-overflow {
+    overflow: visible;
+  }
+
   .section-header {
     font-size: 11px;
     font-weight: 700;
@@ -429,7 +433,7 @@
     </div>
 
     <!-- Default Model -->
-    <div class="section">
+    <div class="section section-allow-overflow">
       <div class="section-header">Default Model</div>
       <div class="section-body">
         <div class="section-desc">Used when a prompt does not specify a model override.</div>
