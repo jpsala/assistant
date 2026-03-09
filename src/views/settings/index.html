@@ -395,6 +395,16 @@
                 <label for="maxTokens">Max Tokens</label>
                 <input id="maxTokens" type="number" min="1" step="1" />
               </div>
+
+              <div class="field">
+                <label for="feedbackStyle">Feedback Style</label>
+                <select id="feedbackStyle">
+                  <option value="custom">Custom tooltip</option>
+                  <option value="windows">Windows-style tooltip</option>
+                  <option value="native">Native notification</option>
+                </select>
+                <div class="hint">Choose between the new in-app style, the current Windows balloon, or OS notifications.</div>
+              </div>
             </section>
 
             <section class="card">

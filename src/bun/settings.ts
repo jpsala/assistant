@@ -21,6 +21,7 @@ export type Settings = {
   model: string;
   apiKeys: Record<Provider, string>;
   maxTokens: number;
+  feedbackStyle: "custom" | "windows" | "native";
 
   // System hotkeys
   hotkeys: {
@@ -46,6 +47,7 @@ const DEFAULTS: Settings = {
   model: "anthropic/claude-sonnet-4-5",
   apiKeys: { openrouter: "", openai: "", anthropic: "", xai: "" },
   maxTokens: 8192,
+  feedbackStyle: "custom",
   hotkeys: {
     promptChat: "Alt+Shift+W",
     promptPicker: "Alt+Shift+Space",
