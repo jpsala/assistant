@@ -200,6 +200,17 @@
     setCommands(Array.isArray(data) ? data : []);
   }
 
+  function reportFocusState(source) {
+    const activeEl = document.activeElement;
+    postToAHK({
+      action: 'focusReport',
+      source: source || '',
+      hasWindowFocus: document.hasFocus(),
+      inputFocused: activeEl === filterInput,
+      activeTag: activeEl && activeEl.tagName ? activeEl.tagName : ''
+    });
+  }
+
   async function loadPromptCatalog() {
     promptLoadStarted = true;
     try {
@@ -238,6 +249,7 @@
       });
     }
     ensureInputFocus();
+    reportFocusState('reset');
   }
 
   function ensureInputFocus(maxRetries = 12, delayMs = 40) {
@@ -250,14 +262,22 @@
       tries += 1;
       if (document.activeElement !== filterInput && tries < maxRetries)
         setTimeout(tick, delayMs);
+      else
+        reportFocusState(`ensure-${tries}`);
     };
     tick();
   }
 
   // Keep typing/navigation ready after OS focus/visibility changes.
-  window.addEventListener('focus', () => ensureInputFocus());
+  window.addEventListener('focus', () => {
+    ensureInputFocus();
+    reportFocusState('window-focus');
+  });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) ensureInputFocus();
+    if (!document.hidden) {
+      ensureInputFocus();
+      reportFocusState('visible');
+    }
   });
 
   // =============================================

@@ -171,6 +171,7 @@ OnMessage(0x0084, WM_NCHITTEST_Handler)
 global HOTKEY_MAP := Map()  ; actionId → ahkKey (currently registered)
 global WINDOW_FOCUS_JOBS := Map()
 global RESIZABLE_WINDOW_HWNDS := Map()
+global DEBUG_LOG_FILE := A_ScriptDir . "\data\debug.log"
 
 ; Action ID → callback function
 HOTKEY_ACTIONS := Map(
@@ -341,6 +342,20 @@ ExtractJsonString(rawJson, key) {
     return ""
 }
 
+ExtractJsonBool(rawJson, key) {
+    pattern := '"' . key . '"\s*:\s*(true|false)'
+    if RegExMatch(rawJson, pattern, &m)
+        return (m[1] = "true")
+    return false
+}
+
+AppendDebugLog(message) {
+    global DEBUG_LOG_FILE
+    try DirCreate(A_ScriptDir . "\data")
+    timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")
+    FileAppend(timestamp . " | " . message . "`n", DEBUG_LOG_FILE, "UTF-8")
+}
+
 HandleSettingsAction(action, rawJson) {
     global settingsGui, settingsReady, API_PROVIDER, API_MODEL, API_KEYS, editorGui, editorReady
 
@@ -462,6 +477,7 @@ global pickerGui := ""
 global pickerReady := false
 global pickerPrevWin := 0
 global pickerMode := "silent"
+global pickerFocusConfirmed := false
 
 InitPickerWindow() {
     global pickerGui
@@ -476,7 +492,7 @@ InitPickerWindow() {
 }
 
 ShowPickerWindow(mode := "silent") {
-    global pickerGui, pickerReady, pickerPrevWin, pickerMode
+    global pickerGui, pickerReady, pickerPrevWin, pickerMode, pickerFocusConfirmed
 
     if !EnsureBackendForView("Prompt Picker")
         return
@@ -485,6 +501,7 @@ ShowPickerWindow(mode := "silent") {
         InitPickerWindow()
 
     pickerMode := mode
+    pickerFocusConfirmed := false
 
     ; Remember where focus was so we can restore it on close/pick
     pickerPrevWin := WinExist("A")
@@ -496,9 +513,13 @@ ShowPickerWindow(mode := "silent") {
     x := ml + (mr - ml - w) // 2
     y := mt + (mb - mt - h) // 3
     pickerGui.Show("x" . x . " y" . y . " w" . w . " h" . h)
+    ForcePickerFocus("show")
     if pickerReady
         pickerGui.ExecuteScriptAsync("resetAndFocus()")
     ScheduleWindowFocus("picker", pickerGui, pickerReady ? "ensureInputFocus()" : "", 1800)
+    SetTimer(ForcePickerFocus.Bind("retry-1"), -80)
+    SetTimer(ForcePickerFocus.Bind("retry-2"), -180)
+    SetTimer(ForcePickerFocus.Bind("retry-3"), -320)
 }
 
 PickerMessageHandler(wv, msg) {
@@ -511,17 +532,30 @@ PickerMessageHandler(wv, msg) {
 }
 
 HandlePickerAction(action, rawJson) {
-    global pickerGui, pickerReady, pickerPrevWin, pickerMode
+    global pickerGui, pickerReady, pickerPrevWin, pickerMode, pickerFocusConfirmed
 
     switch action {
     case "ready":
         pickerReady := true
         SendCommandsToPickerUI()
+        AppendDebugLog("picker ready")
         try {
             if WinExist("ahk_id " . pickerGui.Hwnd)
                 pickerGui.ExecuteScriptAsync("resetAndFocus()")
         }
+        ForcePickerFocus("ready")
         ScheduleWindowFocus("picker", pickerGui, "ensureInputFocus()", 1000)
+
+    case "focusReport":
+        source := ExtractJsonString(rawJson, "source")
+        activeTag := ExtractJsonString(rawJson, "activeTag")
+        hasWindowFocus := ExtractJsonBool(rawJson, "hasWindowFocus")
+        inputFocused := ExtractJsonBool(rawJson, "inputFocused")
+        AppendDebugLog("picker focus-report source=" . source . " window=" . hasWindowFocus . " input=" . inputFocused . " active=" . activeTag)
+        if (hasWindowFocus && inputFocused) {
+            pickerFocusConfirmed := true
+            StopWindowFocus("picker")
+        }
 
     case "pick":
         promptName := ""
@@ -530,8 +564,7 @@ HandlePickerAction(action, rawJson) {
         StopWindowFocus("picker")
         PersistWindowSize(pickerGui, "picker")
         pickerGui.Hide()
-        if (pickerPrevWin)
-            WinActivate("ahk_id " . pickerPrevWin)
+        TryActivateWindow(pickerPrevWin, "picker-pick-restore")
         if (promptName != "") {
             if (pickerMode = "iterative")
                 SetTimer(OpenIterativePromptFlow.Bind(promptName), -100)
@@ -544,8 +577,7 @@ HandlePickerAction(action, rawJson) {
         StopWindowFocus("picker")
         PersistWindowSize(pickerGui, "picker")
         pickerGui.Hide()
-        if (pickerPrevWin)
-            WinActivate("ahk_id " . pickerPrevWin)
+        TryActivateWindow(pickerPrevWin, "picker-close-restore")
         pickerMode := "silent"
     }
 }
@@ -577,6 +609,47 @@ BuildPickerCatalogJson() {
     }
     json .= "]"
     return json
+}
+
+ForcePickerFocus(source := "manual") {
+    global pickerGui, pickerReady, pickerFocusConfirmed
+    if !IsObject(pickerGui)
+        return
+    if (pickerFocusConfirmed && source != "show" && source != "ready")
+        return
+
+    hwndSpec := "ahk_id " . pickerGui.Hwnd
+    if !WinExist(hwndSpec)
+        return
+
+    try WinActivate(hwndSpec)
+    try pickerGui.Control.MoveFocus(0)
+    if pickerReady
+        try pickerGui.ExecuteScriptAsync("ensureInputFocus(); reportFocusState(" . '"' . EscJson(source) . '"' . ")")
+    AppendDebugLog("picker force-focus source=" . source . " activeWindow=" . (WinActive(hwndSpec) ? "true" : "false"))
+}
+
+TryActivateWindow(hwnd, source := "") {
+    if !hwnd
+        return false
+
+    hwndSpec := "ahk_id " . hwnd
+    if !WinExist(hwndSpec) {
+        if (source != "")
+            AppendDebugLog("activate-skip source=" . source . " hwnd=" . hwnd . " exists=false")
+        return false
+    }
+
+    try {
+        WinActivate(hwndSpec)
+        if (source != "")
+            AppendDebugLog("activate-ok source=" . source . " hwnd=" . hwnd)
+        return true
+    } catch {
+        if (source != "")
+            AppendDebugLog("activate-failed source=" . source . " hwnd=" . hwnd)
+        return false
+    }
 }
 
 ; ============================================================
