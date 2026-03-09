@@ -276,7 +276,7 @@
     <div class="chat-shell">
         <div class="chat-header">
           <div class="chat-meta" id="session-meta">Conversation</div>
-        <div class="chat-meta">First line can be `/prompt name` · Ctrl+Enter to send</div>
+        <div class="chat-meta">First line can be `/prompt name` · Enter to send · Shift+Enter for newline</div>
       </div>
 
       <div class="chat-history" id="chat-history"></div>
@@ -560,26 +560,38 @@
   });
 
   composerInput.addEventListener('keydown', (e) => {
-    if (!slashDropdown.classList.contains('visible')) {
-      return;
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      slashActiveIndex = Math.min(slashActiveIndex + 1, slashMatches.length - 1);
-      renderSlashDropdown();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      slashActiveIndex = Math.max(slashActiveIndex - 1, 0);
-      renderSlashDropdown();
-    } else if (e.key === 'Tab' || e.key === 'Enter') {
-      const query = getSlashQuery();
-      if (query !== null && slashActiveIndex >= 0 && slashMatches[slashActiveIndex]) {
+    const slashVisible = slashDropdown.classList.contains('visible');
+    if (slashVisible) {
+      if (e.key === 'ArrowDown') {
         e.preventDefault();
-        applySlashSelection(slashActiveIndex);
+        slashActiveIndex = Math.min(slashActiveIndex + 1, slashMatches.length - 1);
+        renderSlashDropdown();
+        return;
       }
-    } else if (e.key === 'Escape') {
-      slashMatches = [];
-      renderSlashDropdown();
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        slashActiveIndex = Math.max(slashActiveIndex - 1, 0);
+        renderSlashDropdown();
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        const query = getSlashQuery();
+        if (query !== null && slashActiveIndex >= 0 && slashMatches[slashActiveIndex]) {
+          e.preventDefault();
+          applySlashSelection(slashActiveIndex);
+          return;
+        }
+      }
+      if (e.key === 'Escape') {
+        slashMatches = [];
+        renderSlashDropdown();
+        return;
+      }
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendComposerMessage();
     }
   });
 

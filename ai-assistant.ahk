@@ -174,7 +174,7 @@ global RESIZABLE_WINDOW_HWNDS := Map()
 
 ; Action ID → callback function
 HOTKEY_ACTIONS := Map(
-    "promptChat",   (*) => ShowPromptChat(),
+    "promptChat",   (*) => ShowPromptChat(true),
     "promptPicker", (*) => ShowPickerWindow(),
     "iterativePromptPicker", (*) => ShowPickerWindow("iterative"),
     "reload",       (*) => Reload()
@@ -623,13 +623,41 @@ global iterativeTargetWin := 0
 global iterativeSessionJson := ""
 global iterativePendingSession := false
 
-ShowPromptChat() {
-    global iterativeSessionJson, iterativePendingSession
-    if (iterativeSessionJson = "") {
-        iterativeSessionJson := BuildBlankPromptChatSessionJson()
-        iterativePendingSession := true
+ShowPromptChat(captureInput := false) {
+    global iterativeSessionJson
+    if captureInput {
+        targetWin := WinExist("A")
+        inputText := CaptureActiveSelectionText(false)
+        ResetPromptChatSession(inputText, targetWin)
+    } else if (iterativeSessionJson = "") {
+        ResetPromptChatSession()
     }
     ShowIterativeWindow()
+}
+
+ResetPromptChatSession(originalText := "", targetWin := 0) {
+    global iterativeTargetWin, iterativeSessionJson, iterativePendingSession
+    iterativeTargetWin := targetWin
+    iterativeSessionJson := BuildBlankPromptChatSessionJson(originalText)
+    iterativePendingSession := true
+}
+
+CaptureActiveSelectionText(fallbackToClipboard := true) {
+    savedClip := ClipboardAll()
+    savedText := A_Clipboard
+    A_Clipboard := ""
+
+    Send("^c")
+    hasSelection := ClipWait(0.25)
+    if (hasSelection && Trim(A_Clipboard) != "")
+        inputText := A_Clipboard
+    else if fallbackToClipboard
+        inputText := savedText
+    else
+        inputText := ""
+
+    A_Clipboard := savedClip
+    return inputText
 }
 
 OpenIterativePromptFlow(promptName, *) {
@@ -900,10 +928,10 @@ BuildIterativeSessionJson(commandName, originalText, promptText, outputText, pro
         . '}'
 }
 
-BuildBlankPromptChatSessionJson() {
+BuildBlankPromptChatSessionJson(originalText := "") {
     global API_PROVIDER, API_MODEL
     return '{'
-        . '"original":"",'
+        . '"original":"' . EscJson(originalText) . '",'
         . '"provider":"' . EscJson(API_PROVIDER) . '",'
         . '"providerLabel":"' . EscJson(ProviderDisplayName(API_PROVIDER)) . '",'
         . '"model":"' . EscJson(API_MODEL) . '",'
@@ -1873,9 +1901,33 @@ WM_NCHITTEST_Handler(wParam, lParam, msg, hwnd) {
 ; ============================================================
 ; CLOSE HANDLERS — return 1 to prevent default action
 ; ============================================================
+ShowTrayMenuDeferred(*) {
+    A_TrayMenu.Show()
+}
+
 TrayIconMessageHandler(wParam, lParam, msg, hwnd) {
     static WM_LBUTTONUP := 0x202
+    static WM_LBUTTONDBLCLK := 0x203
+    static WM_RBUTTONUP := 0x205
+    static WM_CONTEXTMENU := 0x7B
+    static ignoreNextLeftUp := false
+
     if (lParam = WM_LBUTTONUP) {
+        if ignoreNextLeftUp {
+            ignoreNextLeftUp := false
+            return 0
+        }
+        SetTimer(ShowTrayMenuDeferred, -220)
+        return 0
+    }
+    if (lParam = WM_LBUTTONDBLCLK) {
+        ignoreNextLeftUp := true
+        SetTimer(ShowTrayMenuDeferred, 0)
+        ShowPromptChat()
+        return 0
+    }
+    if (lParam = WM_RBUTTONUP || lParam = WM_CONTEXTMENU) {
+        SetTimer(ShowTrayMenuDeferred, 0)
         A_TrayMenu.Show()
         return 0
     }
