@@ -1,105 +1,165 @@
-# Picker Window — Focus Bug Investigation
+# Runtime Bugs Status
 
-## Current status
-The Prompt Picker is functional end-to-end:
-- Alt+Shift+Space opens picker window
-- Prompts list from APPDATA renders correctly
-- Clicking/Enter on a prompt executes silentReplace on source window (debug mode: pastes dummy text)
-- Picker closes after selection
-- Second invocation of hotkey works
+## What works today
 
-**FIXED**: Both focus bugs have been addressed with the following changes:
+The core picker flow is working:
 
----
+- Global hotkey opens the prompt picker.
+- The picker gets focus and can be searched.
+- Selected text is pre-captured before the picker steals focus.
+- Choosing a prompt runs the correct prompt on the correct selected text.
+- The selected text is replaced with the generated output.
+- Structured logs are written to `%APPDATA%\\assistant\\logs\\latest.log`.
+- Settings window exists and hotkey changes persist.
 
-## BUG 1 — Picker opens without keyboard focus ✅ FIXED
+## What is still broken
 
-**Symptom**: Window appears, search `<input>` is not focused, user cannot type immediately.
+### 1. Feedback tooltip does not really close
 
-### Solution Implemented: Synthetic Mouse Click (Option A)
+Observed behavior:
 
-Added the following to [src/bun/ffi.ts](src/bun/ffi.ts):
-- `GetWindowRect` binding to get window screen coordinates
-- `GetSystemMetrics` binding for screen dimensions
-- `MOUSEEVENTF_*` constants for mouse input
-- `getWindowRect(hwnd)` - returns window bounds
-- `sendMouseClick(x, y)` - internal function using `SendInput` with `MOUSEINPUT`
-- `clickToFocus(hwnd, offsetY)` - clicks at center-top of window to focus WebView2
+- The feedback window shows correctly during `processing`, `pasting`, and `success/error`.
+- When the toast timeout ends, the window does not behave like a true transient notification.
+- From the user perspective it looks minimized or otherwise left behind as a window artifact.
 
-The synthetic mouse click is the most reliable method because Windows treats `SendInput` as real user input and grants focus unconditionally. This is the same technique used by AutoHotkey's `ControlClick`.
+Current log shape:
 
-### Implementation in [src/bun/picker.ts](src/bun/picker.ts):
-1. After `forceFocus(hwnd)` brings the Win32 frame to foreground
-2. Wait 300ms for WebView2 to initialize
-3. Try `focusWebView2Child(hwnd)` first (may work if class names match)
-4. Fallback to `clickToFocus(hwnd, 50)` - clicks 50px from top where search box is
+- `feedback.window.created`
+- `feedback.window.reused`
+- `feedback.window.hidden`
 
----
+Even when the log says `window.hidden`, the UX is still wrong.
 
-## BUG 2 — Source input loses focus on second picker use ✅ FIXED
+### 2. Feedback window can become empty / black
 
-**Symptom**: After first use everything works. Second use: replace runs correctly but the source window's input/textarea doesn't regain focus.
+Observed behavior:
 
-### Root cause
-`hidePicker()` calls `forceFocus(_sourceHwnd)`. On the second use, `forceFocus` fails silently because Bun's process no longer has "recent user input" permission from Windows.
+- The tooltip window can end up blank and black instead of showing the toast content.
+- This has happened while iterating on the feedback implementation.
+- It suggests the current window reuse / hidden-window strategy is unstable in Electrobun/WebView2.
 
-### Solution Implemented: AllowSetForegroundWindow (Option C)
+### 3. Feedback window implementation is still not production-safe
 
-Added to [src/bun/ffi.ts](src/bun/ffi.ts):
-- `AllowSetForegroundWindow` binding in kernel32.dll
-- `allowSetForegroundWindow()` export that calls `AllowSetForegroundWindow(ASFW_ANY)`
+The current tooltip system is functional enough to show status, but not stable enough to be considered finished because:
 
-### Implementation in [src/bun/picker.ts](src/bun/picker.ts):
-1. Call `allowSetForegroundWindow()` in `initPickerServer()` at startup
-2. Call `allowSetForegroundWindow()` in `hidePicker()` before `forceFocus(_sourceHwnd)`
+- it leaves behind a visible/minimized artifact
+- it has shown stale content in previous iterations
+- it has shown empty/black content in previous iterations
+- it previously correlated with app exit/crash behavior
 
-This grants Bun's process permission to call `SetForegroundWindow` on any window, bypassing Windows' focus restriction.
+## What we already tried
 
----
+### A. Disposable feedback window
 
-## Architecture decisions (for context)
+Implementation:
 
-### Why HTTP server instead of inline HTML
-WebView2 blocks `<script type="module">` when loaded from `null` origin (inline HTML). Using `Bun.serve({ port: 0 })` gives a proper `http://localhost:PORT` origin.
+- Create a fresh `BrowserWindow` per toast/update.
+- Close it after timeout with `BrowserWindow.close()`.
 
-### Why fetch instead of RPC for execute/close
-Electrobun's RPC WebSocket uses `window.__electrobunWebviewId` + `window.__electrobunRpcSocketPort` injected by a native preload — NOT injected for HTTP URL windows.
-- Actions → `POST http://localhost:PORT/execute|/close`
-- Data → injected into HTML as `window.__PICKER_PROMPTS__` and `window.__PICKER_PORT__`
+Result:
 
-### Why close+recreate instead of minimize/restore
-- `_window.minimize()` doesn't reliably hide the window
-- `_window.show()` after minimize doesn't give keyboard focus
-- Fresh load → cleaner state
+- Bad.
+- Multiple feedback webviews accumulated quickly.
+- This correlated with process instability and at one point the app exited with code `255`.
 
-### Source window tracking
-- `_sourceHwnd` captured via `getForegroundWindow()` BEFORE window operations
-- Passed to `silentReplace(prompt, { hwnd: _sourceHwnd })`
-- `forceFocus(_sourceHwnd)` in `hidePicker()` to restore focus after close
+### B. Reusable singleton window with `loadURL(...)`
 
----
+Implementation:
 
-## Key files
-- [src/bun/picker.ts](src/bun/picker.ts) — HTTP server, BrowserWindow lifecycle, execute/close handlers
-- [src/views/picker/index.ts](src/views/picker/index.ts) — Webview: render, keyboard nav, fetch calls
-- [src/views/picker/index.html](src/views/picker/index.html) — Spotlight-style dark UI
-- [src/bun/ffi.ts](src/bun/ffi.ts) — FFI: `forceFocus()`, `focusWebView2Child()`, `logChildWindows()`, `clickToFocus()`, `allowSetForegroundWindow()`
-- [src/bun/replace.ts](src/bun/replace.ts) — `silentReplace(prompt, { hwnd? })`
+- Keep one feedback `BrowserWindow`.
+- Update it with `webview.loadURL(...)`.
+- Hide it by moving it off-screen with `setFrame(...)`.
 
-## FFI exports (src/bun/ffi.ts)
-- `getForegroundWindow()` — current foreground HWND
-- `forceFocus(hwnd)` — AttachThreadInput (→ fg thread) + BringWindowToTop + SetForegroundWindow
-- `findWindowByTitle(title)` — FindWindowW UTF-16 wrapper
-- `setForegroundWindow(hwnd)` — raw SetForegroundWindow
-- `focusWebView2Child(hwnd)` — recursive FindWindowExW + SetFocus on Chromium child
-- `logChildWindows(hwnd)` — dump child tree with class names (debug)
-- `getWindowRect(hwnd)` — get window screen coordinates
-- `clickToFocus(hwnd, offsetY?)` — synthetic mouse click to focus WebView2 (BUG 1 fix)
-- `allowSetForegroundWindow()` — call AllowSetForegroundWindow(ASFW_ANY) (BUG 2 fix)
+Result:
 
-## Recommended next session order
-1. ~~Run app, press Alt+Shift+Space, read `/tmp/app.log` → get real child class names → fix `focusWebView2Child`~~ ✅ Done (synthetic click implemented instead)
-2. ~~If step 1 doesn't work: implement Option A (synthetic mouse click via SendInput MOUSEEVENTF_LEFTDOWN/UP)~~ ✅ Done
-3. ~~Fix BUG 2 via AllowSetForegroundWindow~~ ✅ Done
-4. Remove DEBUG_REPLACE flag and test full silent replace flow end-to-end
-5. Move on to Prompt Chat window
+- Better than recreating windows.
+- Avoided immediate app exit in successful runs.
+- Still left a minimized/ghost-like window artifact.
+- Also produced stale content between runs.
+
+### C. Reusable singleton with cache-busting URL params
+
+Implementation:
+
+- Added nonce query params to each feedback URL.
+- Added `Cache-Control: no-store` headers.
+- Updated the native window title every time.
+
+Result:
+
+- Did not fully solve the stale/minimized behavior.
+
+### D. Utility window / non-miniaturizable feedback window
+
+Implementation:
+
+- Create the feedback window with:
+  - `styleMask.UtilityWindow = true`
+  - `styleMask.Miniaturizable = false`
+  - `styleMask.Resizable = false`
+
+Result:
+
+- Still did not solve the "it minimizes instead of closing" UX.
+
+### E. Reusable singleton with `loadHTML(...)` instead of HTTP URL
+
+Implementation:
+
+- Removed the toast HTTP server.
+- Switched feedback rendering to `webview.loadHTML(renderToastHtml(...))`.
+
+Result:
+
+- Intended to eliminate stale cache/state.
+- User still reports the same close/minimize problem.
+- User also reports the window can end up empty and black.
+
+## Important conclusions
+
+### The replace flow is not the current bug
+
+The important runtime path is already confirmed working:
+
+- picker opens
+- prompt selection works
+- prompt executes
+- selected text changes correctly
+
+So the current problem is specifically the feedback window lifecycle and rendering behavior.
+
+### The current approach is likely fighting Electrobun window semantics
+
+Based on behavior so far, the unstable piece is not prompt execution but using a real `BrowserWindow` as a toast surface:
+
+- closing it is risky
+- hiding it off-screen is not equivalent to dismissing it
+- reusing it can produce stale or black content
+
+## Current recommendation
+
+Do not keep iterating blindly on the current `BrowserWindow` toast approach.
+
+The next implementation should be treated as a redesign, not another micro-fix. The most likely options are:
+
+1. Render feedback inside an already-existing app window instead of a dedicated toast window.
+2. Use a true native notification / tray notification path if Electrobun supports it.
+3. Keep the dedicated window but destroy and recreate it safely only if we can prove app shutdown is no longer tied to window close.
+
+## Files involved
+
+- `src/bun/feedback.ts`
+- `src/bun/picker.ts`
+- `src/bun/replace.ts`
+- `src/bun/ffi.ts`
+- `%APPDATA%\\assistant\\logs\\latest.log`
+
+## Most recent observed state
+
+As of March 9, 2026:
+
+- picker flow works
+- replace flow works
+- feedback appears
+- feedback dismissal UX is still broken
+- feedback window can become black/empty
