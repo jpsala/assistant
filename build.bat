@@ -94,6 +94,7 @@ copy "%SRC%ui\prompt-editor.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\prompt-confirm.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\picker.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\setup.html" "%DIST%\ui\" >nul
+copy "%SRC%ui\toast.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\shared.css" "%DIST%\ui\" >nul
 copy "%SRC%ui\window-ui.js" "%DIST%\ui\" >nul
 copy "%SRC%ui\ahk-bridge.js" "%DIST%\ui\" >nul

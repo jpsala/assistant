@@ -349,6 +349,13 @@ ExtractJsonBool(rawJson, key) {
     return false
 }
 
+FormatElapsedMs(startTick) {
+    elapsed := A_TickCount - startTick
+    if (elapsed < 1000)
+        return elapsed . " ms"
+    return Format("{:.1f}s", elapsed / 1000.0)
+}
+
 AppendDebugLog(message) {
     global DEBUG_LOG_FILE
     try DirCreate(A_ScriptDir . "\data")
@@ -485,6 +492,10 @@ EnsureConfiguredForUse(featureName := "This feature") {
 ; ============================================================
 global setupGui := ""
 global setupReady := false
+global toastGui := ""
+global toastReady := false
+global toastPendingJson := ""
+global toastHideToken := 0
 
 ShowSetupWizard() {
     global setupGui, setupReady
@@ -526,6 +537,83 @@ SetupWindowClose(*) {
         setupGui.Hide()
     }
     return 1
+}
+
+InitToastWindow() {
+    global toastGui
+    if IsObject(toastGui)
+        return
+
+    dllPath := A_ScriptDir "\lib\" (A_PtrSize * 8) "bit\WebView2Loader.dll"
+    toastGui := WebViewGui("+AlwaysOnTop -Caption +ToolWindow +E0x08000000", "Activity Toast",, {DllPath: dllPath})
+    if (A_IsCompiled)
+        toastGui.Control.BrowseFolder(A_ScriptDir)
+    toastGui.Control.wv.add_WebMessageReceived(ToastMessageHandler)
+    toastGui.Navigate("ui/toast.html")
+}
+
+ToastMessageHandler(wv, msg) {
+    try data := msg.WebMessageAsJson
+    catch
+        return
+
+    if !RegExMatch(data, '"action"\s*:\s*"(\w+)"', &m)
+        return
+
+    if (m[1] = "ready")
+        SetTimer(HandleToastReady, -1)
+}
+
+HandleToastReady() {
+    global toastGui, toastReady, toastPendingJson
+    toastReady := true
+    if (toastPendingJson != "")
+        toastGui.ExecuteScriptAsync("setToast(" . toastPendingJson . ")")
+}
+
+HideActivityToast() {
+    global toastGui
+    if IsObject(toastGui) {
+        try toastGui.ExecuteScriptAsync("hideToast()")
+        try toastGui.Hide()
+    }
+}
+
+HideActivityToastIfToken(expectedToken) {
+    global toastHideToken
+    if (toastHideToken != expectedToken)
+        return
+    HideActivityToast()
+}
+
+ShowActivityToast(title, body := "", duration := 2500, type := "info", meta := "") {
+    global toastGui, toastReady, toastPendingJson, toastHideToken
+
+    if !IsObject(toastGui)
+        InitToastWindow()
+
+    payloadJson := '{'
+        . '"title":"' . EscJson(title) . '",'
+        . '"body":"' . EscJson(body) . '",'
+        . '"type":"' . EscJson(type) . '",'
+        . '"meta":"' . EscJson(meta) . '"'
+        . '}'
+    toastPendingJson := payloadJson
+
+    GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
+    w := 406
+    h := 112
+    marginRight := 18
+    marginBottom := 20
+    x := mr - w - marginRight
+    y := mb - h - marginBottom
+    try toastGui.Show("NA x" . x . " y" . y . " w" . w . " h" . h)
+    if toastReady
+        try toastGui.ExecuteScriptAsync("setToast(" . payloadJson . ")")
+
+    toastHideToken += 1
+    if (duration > 0)
+        SetTimer(HideActivityToastIfToken.Bind(toastHideToken), -duration)
 }
 
 SetupMessageHandler(wv, msg) {
@@ -749,6 +837,30 @@ TryActivateWindow(hwnd, source := "") {
     }
 }
 
+EnsureWindowActive(hwnd, source := "", timeoutMs := 1200) {
+    if !hwnd
+        return false
+
+    hwndSpec := "ahk_id " . hwnd
+    if !WinExist(hwndSpec) {
+        if (source != "")
+            AppendDebugLog("activate-missing source=" . source . " hwnd=" . hwnd)
+        return false
+    }
+
+    startedAt := A_TickCount
+    while (A_TickCount - startedAt <= timeoutMs) {
+        if WinActive(hwndSpec)
+            return true
+        TryActivateWindow(hwnd, source)
+        Sleep(80)
+    }
+
+    if (source != "")
+        AppendDebugLog("activate-timeout source=" . source . " hwnd=" . hwnd)
+    return WinActive(hwndSpec)
+}
+
 ; ============================================================
 ; ITERATIVE WORKSPACE WINDOW
 ; ============================================================
@@ -802,19 +914,21 @@ CaptureActiveSelectionText(fallbackToClipboard := true) {
 OpenIterativePromptFlow(promptName, *) {
     global COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, API_PROVIDER, API_MODEL
     global iterativeTargetWin, iterativeSessionJson, iterativePendingSession
+    actionStartedAt := A_TickCount
 
     if !COMMAND_PROMPTS.Has(promptName) {
         ShowTip("Prompt not found: " . promptName, 3000)
         return
     }
 
-    ShowTip(promptName . " - preparando Prompt Chat...", 12000)
+    ShowActivityToast(promptName, "Preparando Prompt Chat y capturando selección...", 12000, "working", "Prompt Chat")
 
     targetWin := WinExist("A")
     savedClip := ClipboardAll()
     savedText := A_Clipboard
     A_Clipboard := ""
 
+    captureStartedAt := A_TickCount
     Send("^c")
     hasSelection := ClipWait(0.25)
     if (hasSelection && Trim(A_Clipboard) != "")
@@ -825,7 +939,7 @@ OpenIterativePromptFlow(promptName, *) {
     A_Clipboard := savedClip
 
     if (Trim(inputText) = "") {
-        ShowTip("No text to process", 2500)
+        ShowActivityToast(promptName, "No encontré texto para procesar.", 2500, "error", "Prompt Chat")
         return
     }
 
@@ -836,12 +950,13 @@ OpenIterativePromptFlow(promptName, *) {
         : (provider = API_PROVIDER ? API_MODEL : LoadSelectedModel(provider))
     apiKey := GetProviderApiKey(provider)
     if (apiKey = "") {
-        ShowTip("Missing API key for " . ProviderDisplayName(provider), 4000)
+        ShowActivityToast(promptName, "Falta la API key para " . ProviderDisplayName(provider) . ".", 4000, "error", ProviderDisplayName(provider))
         return
     }
 
     runLabel := ProviderDisplayName(provider) . " · " . useModel
-    ShowTip(promptName . " - modelo procesando (" . runLabel . ")...", 30000)
+    captureTime := FormatElapsedMs(captureStartedAt)
+    ShowActivityToast(promptName, "Input listo en " . captureTime . ". Enviando request al modelo.", 12000, "working", runLabel)
 
     try {
         lang := DetectLanguage(inputText)
@@ -851,13 +966,17 @@ OpenIterativePromptFlow(promptName, *) {
             . "`nIf the instruction asks to translate, summarize, rewrite, reformat, or correct the text, do that transformation."
             . "`nReturn ONLY the final transformed text, with no explanations or meta-commentary."
         userMessage := promptText . "`n`n---`n`n" . inputText
+        modelStartedAt := A_TickCount
+        ShowActivityToast(promptName, "Esperando respuesta del modelo...", 30000, "working", runLabel)
         result := CallProvider(userMessage, sysPrompt, provider, apiKey, useModel)
+        modelTime := FormatElapsedMs(modelStartedAt)
 
         iterativeTargetWin := targetWin
         iterativeSessionJson := BuildIterativeSessionJson(promptName, inputText, promptText, result, provider, useModel)
         iterativePendingSession := true
         ShowIterativeWindow()
-        ShowTip("Prompt Chat listo (" . runLabel . ")", 2000)
+        totalTime := FormatElapsedMs(actionStartedAt)
+        ShowActivityToast("Prompt Chat listo", "Respuesta recibida. Ventana preparada.", 2600, "success", "Modelo " . modelTime . " · Total " . totalTime)
     } catch as e {
         ShowTip("Error: " . e.Message, 4000)
     }
@@ -1671,6 +1790,7 @@ RegisterPromptHotkeys(newHotkeys) {
 
 ExecutePromptSilently(promptName, *) {
     global COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_CONFIRMS, API_PROVIDER, API_MODEL
+    actionStartedAt := A_TickCount
 
     if !EnsureConfiguredForUse(promptName)
         return
@@ -1680,7 +1800,7 @@ ExecutePromptSilently(promptName, *) {
         return
     }
 
-    ShowTip(promptName . " - preparando...", 12000)
+    ShowActivityToast(promptName, "Capturando clipboard o selección activa...", 12000, "working", "Prompt silencioso")
 
     targetWin := WinExist("A")
 
@@ -1690,6 +1810,7 @@ ExecutePromptSilently(promptName, *) {
     A_Clipboard := ""
 
     ; Try to copy any active selection
+    captureStartedAt := A_TickCount
     Send("^c")
     hasSelection := ClipWait(0.25)
 
@@ -1701,7 +1822,7 @@ ExecutePromptSilently(promptName, *) {
     }
 
     if (Trim(inputText) = "") {
-        ShowTip("No text to process", 2500)
+        ShowActivityToast(promptName, "No encontré texto para procesar.", 2500, "error", "Prompt silencioso")
         A_Clipboard := savedClip
         return
     }
@@ -1710,12 +1831,12 @@ ExecutePromptSilently(promptName, *) {
     if (COMMAND_CONFIRMS.Has(promptName) && COMMAND_CONFIRMS[promptName]) {
         accepted := ShowPromptConfirmDialog(promptName, promptText, inputText, &promptText, &inputText)
         if !accepted {
-            ShowTip("Cancelled", 1500)
+            ShowActivityToast(promptName, "Operación cancelada.", 1500, "info", "Prompt silencioso")
             A_Clipboard := savedClip
             return
         }
         if (Trim(inputText) = "") {
-            ShowTip("No text to process", 2500)
+            ShowActivityToast(promptName, "No encontré texto para procesar.", 2500, "error", "Prompt silencioso")
             A_Clipboard := savedClip
             return
         }
@@ -1728,13 +1849,14 @@ ExecutePromptSilently(promptName, *) {
         : (provider = API_PROVIDER ? API_MODEL : LoadSelectedModel(provider))
     apiKey := GetProviderApiKey(provider)
     if (apiKey = "") {
-        ShowTip("Missing API key for " . ProviderDisplayName(provider), 4000)
+        ShowActivityToast(promptName, "Falta la API key para " . ProviderDisplayName(provider) . ".", 4000, "error", ProviderDisplayName(provider))
         A_Clipboard := savedClip
         return
     }
 
     runLabel := ProviderDisplayName(provider) . " · " . useModel
-    ShowTip(promptName . " - solicitud lista, enviando...", 12000)
+    captureTime := FormatElapsedMs(captureStartedAt)
+    ShowActivityToast(promptName, "Input listo en " . captureTime . ". Enviando request al modelo.", 12000, "working", runLabel)
 
     try {
         lang := DetectLanguage(inputText)
@@ -1744,15 +1866,31 @@ ExecutePromptSilently(promptName, *) {
             . "`nIf the instruction asks to translate, summarize, rewrite, reformat, or correct the text, do that transformation."
             . "`nReturn ONLY the final transformed text, with no explanations or meta-commentary."
         userMessage := promptText . "`n`n---`n`n" . inputText
-        ShowTip(promptName . " - modelo procesando (" . runLabel . ")...", 30000)
+        modelStartedAt := A_TickCount
+        ShowActivityToast(promptName, "Esperando respuesta del modelo...", 30000, "working", runLabel)
         result := CallProvider(userMessage, sysPrompt, provider, apiKey, useModel)
+        modelTime := FormatElapsedMs(modelStartedAt)
 
+        pasteStartedAt := A_TickCount
+        ShowActivityToast(promptName, "Respuesta recibida en " . modelTime . ". Volviendo a la ventana original...", 8000, "working", runLabel)
+
+        if !EnsureWindowActive(targetWin, "silent-paste-target") {
+            A_Clipboard := result
+            totalTime := FormatElapsedMs(actionStartedAt)
+            ShowActivityToast("Resultado listo", "No pude volver a la ventana original. Dejé el resultado en el portapapeles.", 4200, "error", StrLen(result) . " chars · modelo " . modelTime . " · total " . totalTime)
+            return
+        }
+
+        ShowActivityToast(promptName, "Ventana original activa. Pegando resultado...", 8000, "working", runLabel)
         A_Clipboard := result
         ClipWait(0.4)
         Send("^v")
+        Sleep(120)
         ; Delay restore asynchronously so paste can complete without blocking this thread.
         SetTimer((*) => (A_Clipboard := savedClip), -300)
-        ShowTip("Done — " . StrLen(result) . " chars (" . runLabel . ")", 2000)
+        pasteTime := FormatElapsedMs(pasteStartedAt)
+        totalTime := FormatElapsedMs(actionStartedAt)
+        ShowActivityToast("Listo", "Resultado pegado en la app destino.", 3000, "success", StrLen(result) . " chars · modelo " . modelTime . " · pegar " . pasteTime . " · total " . totalTime)
     } catch as e {
         ShowTip("Error: " . e.Message, 4000)
         A_Clipboard := savedClip
@@ -1904,12 +2042,12 @@ GetTopLevelWindowHwnd(hwnd) {
 }
 
 IsResizableWindowHwnd(hwnd) {
-    global RESIZABLE_WINDOW_HWNDS, settingsGui, pickerGui, editorGui, promptConfirmGui, iterativeGui
+    global RESIZABLE_WINDOW_HWNDS, settingsGui, pickerGui, editorGui, promptConfirmGui, iterativeGui, setupGui
 
     if RESIZABLE_WINDOW_HWNDS.Has(hwnd)
         return true
 
-    for guiObj in [settingsGui, pickerGui, editorGui, promptConfirmGui, iterativeGui] {
+    for guiObj in [settingsGui, pickerGui, editorGui, promptConfirmGui, iterativeGui, setupGui] {
         if (IsObject(guiObj) && guiObj.Hwnd = hwnd) {
             RESIZABLE_WINDOW_HWNDS[hwnd] := true
             return true
@@ -2013,6 +2151,12 @@ GetActiveMonitorWorkArea(&outLeft, &outTop, &outRight, &outBottom) {
 }
 
 ShowTip(msg, duration := 2500) {
-    ToolTip(msg)
-    SetTimer(() => ToolTip(), -duration)
+    type := "info"
+    if (InStr(msg, "Error:") = 1)
+        type := "error"
+    else if (InStr(msg, "Done") = 1 || InStr(msg, "listo") > 0)
+        type := "success"
+    else if (InStr(msg, "procesando") > 0 || InStr(msg, "esperando") > 0 || InStr(msg, "enviando") > 0)
+        type := "working"
+    ShowActivityToast("AI Assistant", msg, duration, type)
 }
