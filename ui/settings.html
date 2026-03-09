@@ -868,11 +868,10 @@
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-      openrouterKey: keyInputs.openrouter.value.trim(),
-      openaiKey: keyInputs.openai.value.trim(),
-      anthropicKey: keyInputs.anthropic.value.trim(),
-      xaiKey: keyInputs.xai.value.trim()
-    });
+        openrouterKey: keyInputs.openrouter.value.trim(),
+        openaiKey: keyInputs.openai.value.trim(),
+        anthropicKey: keyInputs.anthropic.value.trim(),
+        xaiKey: keyInputs.xai.value.trim()
       })
     });
     setCurrentProvider(data.provider || currentProvider);
@@ -944,11 +943,24 @@
   document.addEventListener('DOMContentLoaded', () => {
     initWindowUI();
     updateProviderNote();
-    loadSettingsSnapshot()
-      .then(() => loadHotkeysSnapshot())
-      .then(() => refreshModelsFromBackend())
-      .then(() => setStatus('Loaded settings'))
-      .catch((error) => setStatus('Error loading settings: ' + error.message));
+
+    Promise.allSettled([
+      loadSettingsSnapshot().then(() => refreshModelsFromBackend()),
+      loadHotkeysSnapshot()
+    ]).then((results) => {
+      const failures = results
+        .filter(result => result.status === 'rejected')
+        .map(result => result.reason && result.reason.message ? result.reason.message : String(result.reason));
+
+      if (failures.length === 0) {
+        setStatus('Loaded settings');
+      } else if (failures.length === 1) {
+        setStatus('Partial load error: ' + failures[0]);
+      } else {
+        setStatus('Partial load errors: ' + failures.join(' | '));
+      }
+    });
+
     sendToAHK('ready');
   });
 </script>
