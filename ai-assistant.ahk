@@ -845,8 +845,11 @@ OpenIterativePromptFlow(promptName, *) {
 
     try {
         lang := DetectLanguage(inputText)
-        sysPrompt := GetSystemPrompt("fix", lang)
-            . "`n`nThe user will give you a prompt/instruction followed by the text to work with (separated by ---). Follow the prompt instructions. Return ONLY the result, no explanations."
+        sysPrompt := GetSystemPrompt("write", lang)
+            . "`n`nThe user will give you a prompt/instruction followed by the text to work with (separated by ---)."
+            . "`nFollow the prompt instructions exactly."
+            . "`nIf the instruction asks to translate, summarize, rewrite, reformat, or correct the text, do that transformation."
+            . "`nReturn ONLY the final transformed text, with no explanations or meta-commentary."
         userMessage := promptText . "`n`n---`n`n" . inputText
         result := CallProvider(userMessage, sysPrompt, provider, apiKey, useModel)
 
@@ -1735,8 +1738,11 @@ ExecutePromptSilently(promptName, *) {
 
     try {
         lang := DetectLanguage(inputText)
-        sysPrompt := GetSystemPrompt("fix", lang)
-            . "`n`nThe user will give you a prompt/instruction followed by the text to work with (separated by ---). Follow the prompt instructions. Return ONLY the result, no explanations."
+        sysPrompt := GetSystemPrompt("write", lang)
+            . "`n`nThe user will give you a prompt/instruction followed by the text to work with (separated by ---)."
+            . "`nFollow the prompt instructions exactly."
+            . "`nIf the instruction asks to translate, summarize, rewrite, reformat, or correct the text, do that transformation."
+            . "`nReturn ONLY the final transformed text, with no explanations or meta-commentary."
         userMessage := promptText . "`n`n---`n`n" . inputText
         ShowTip(promptName . " - modelo procesando (" . runLabel . ")...", 30000)
         result := CallProvider(userMessage, sysPrompt, provider, apiKey, useModel)
