@@ -27,6 +27,7 @@
         color: var(--ink);
         font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
         font-size: 14px;
+        overflow: hidden;
         background:
           radial-gradient(circle at top left, rgba(139, 92, 246, 0.14), transparent 30%),
           linear-gradient(180deg, var(--bg-2), var(--bg-1));
@@ -38,14 +39,19 @@
         align-items: center;
         height: 34px;
         padding: 0 4px 0 14px;
-        -webkit-app-region: drag;
         user-select: none;
         flex-shrink: 0;
         border-bottom: 1px solid var(--line);
       }
 
-      .titlebar-title {
+      .titlebar-drag {
         flex: 1;
+        height: 100%;
+        display: flex;
+        align-items: center;
+      }
+
+      .titlebar-title {
         font-size: 12px;
         font-weight: 600;
         color: rgba(255, 255, 255, 0.45);
@@ -73,12 +79,24 @@
       }
 
       /* ── Layout ── */
+      .window {
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+      }
+
+      .content {
+        min-height: 0;
+        overflow: auto;
+      }
+
       .shell {
         max-width: 980px;
         margin: 0 auto;
         padding: 20px 24px 24px;
         display: grid;
         gap: 18px;
+        min-height: 100%;
       }
 
       .hero {
@@ -218,7 +236,6 @@
         align-items: center;
         justify-content: space-between;
         gap: 16px;
-        margin-top: 6px;
       }
 
       .status {
@@ -262,6 +279,50 @@
         cursor: default;
       }
 
+      .footer {
+        position: relative;
+        border-top: 1px solid var(--line);
+        background: rgba(10, 12, 20, 0.72);
+        backdrop-filter: blur(12px);
+        padding: 12px 24px 14px;
+      }
+
+      .footer-inner {
+        max-width: 980px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding-right: 28px;
+      }
+
+      .resize-grip {
+        position: absolute;
+        right: 8px;
+        bottom: 6px;
+        width: 20px;
+        height: 20px;
+        border: 0;
+        background: transparent;
+        cursor: nwse-resize;
+        opacity: 0.6;
+      }
+
+      .resize-grip::before {
+        content: "";
+        position: absolute;
+        inset: 4px 3px 3px 4px;
+        background:
+          linear-gradient(135deg, transparent 0 52%, rgba(255, 255, 255, 0.7) 52% 58%, transparent 58% 100%),
+          linear-gradient(135deg, transparent 0 70%, rgba(255, 255, 255, 0.52) 70% 76%, transparent 76% 100%),
+          linear-gradient(135deg, transparent 0 87%, rgba(255, 255, 255, 0.34) 87% 93%, transparent 93% 100%);
+      }
+
+      .resize-grip:hover {
+        opacity: 1;
+      }
+
       /* ── Scrollbar ── */
       ::-webkit-scrollbar {
         width: 6px;
@@ -287,100 +348,112 @@
     </style>
   </head>
   <body>
-    <div class="titlebar">
-      <span class="titlebar-title">Settings</span>
-      <button class="titlebar-close" id="titlebar-close" title="Close">&#x2715;</button>
-    </div>
-
-    <div class="shell">
-      <div class="hero">
-        <div class="eyebrow">Assistant</div>
-        <h1>Settings</h1>
-        <div class="sub">
-          Change your default provider, choose a model, rotate API keys, and tune
-          hotkeys without restarting the app.
+    <div class="window">
+      <div class="titlebar">
+        <div class="titlebar-drag electrobun-webkit-app-region-drag">
+          <span class="titlebar-title">Settings</span>
         </div>
+        <button class="titlebar-close" id="titlebar-close" title="Close">&#x2715;</button>
       </div>
 
-      <div class="grid">
-        <section class="card">
-          <h2>Model Defaults</h2>
-          <p>Used whenever a prompt does not override provider or model.</p>
-
-          <div class="field">
-            <label for="provider">Provider</label>
-            <select id="provider">
-              <option value="openrouter">OpenRouter</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="xai">xAI</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="model">Model</label>
-            <div class="inline">
-              <select id="model"></select>
-              <button class="button secondary" id="model-refresh" type="button">Refresh</button>
+      <div class="content">
+        <div class="shell">
+          <div class="hero">
+            <div class="eyebrow">Assistant</div>
+            <h1>Settings</h1>
+            <div class="sub">
+              Change your default provider, choose a model, rotate API keys, and tune
+              hotkeys without restarting the app.
             </div>
-            <div class="hint" id="model-hint">Load provider models when you are ready.</div>
           </div>
 
-          <div class="field">
-            <label for="maxTokens">Max Tokens</label>
-            <input id="maxTokens" type="number" min="1" step="1" />
-          </div>
-        </section>
+          <div class="grid">
+            <section class="card">
+              <h2>Model Defaults</h2>
+              <p>Used whenever a prompt does not override provider or model.</p>
 
-        <section class="card">
-          <h2>System Hotkeys</h2>
-          <p>Friendly format like <code>Alt+Shift+Space</code> is supported.</p>
+              <div class="field">
+                <label for="provider">Provider</label>
+                <select id="provider">
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="xai">xAI</option>
+                </select>
+              </div>
 
-          <div class="field">
-            <label for="promptChat">Prompt Chat</label>
-            <input id="promptChat" type="text" />
+              <div class="field">
+                <label for="model">Model</label>
+                <div class="inline">
+                  <select id="model"></select>
+                  <button class="button secondary" id="model-refresh" type="button">Refresh</button>
+                </div>
+                <div class="hint" id="model-hint">Load provider models when you are ready.</div>
+              </div>
+
+              <div class="field">
+                <label for="maxTokens">Max Tokens</label>
+                <input id="maxTokens" type="number" min="1" step="1" />
+              </div>
+            </section>
+
+            <section class="card">
+              <h2>System Hotkeys</h2>
+              <p>Friendly format like <code>Alt+Shift+Space</code> is supported.</p>
+
+              <div class="field">
+                <label for="promptChat">Prompt Chat</label>
+                <input id="promptChat" type="text" />
+              </div>
+
+              <div class="field">
+                <label for="promptPicker">Prompt Picker</label>
+                <input id="promptPicker" type="text" />
+              </div>
+
+              <div class="field">
+                <label for="reloadHotkey">Reload</label>
+                <input id="reloadHotkey" type="text" />
+              </div>
+            </section>
           </div>
 
-          <div class="field">
-            <label for="promptPicker">Prompt Picker</label>
-            <input id="promptPicker" type="text" />
-          </div>
+          <section class="card">
+            <h2>API Keys</h2>
+            <p>Keys stay local in your roaming app data settings file.</p>
 
-          <div class="field">
-            <label for="reloadHotkey">Reload</label>
-            <input id="reloadHotkey" type="text" />
-          </div>
-        </section>
+            <div class="key-grid">
+              <div class="field">
+                <label for="key-openrouter">OpenRouter</label>
+                <input id="key-openrouter" type="password" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="key-openai">OpenAI</label>
+                <input id="key-openai" type="password" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="key-anthropic">Anthropic</label>
+                <input id="key-anthropic" type="password" autocomplete="off" />
+              </div>
+              <div class="field">
+                <label for="key-xai">xAI</label>
+                <input id="key-xai" type="password" autocomplete="off" />
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
 
-      <section class="card">
-        <h2>API Keys</h2>
-        <p>Keys stay local in your roaming app data settings file.</p>
-
-        <div class="key-grid">
-          <div class="field">
-            <label for="key-openrouter">OpenRouter</label>
-            <input id="key-openrouter" type="password" autocomplete="off" />
-          </div>
-          <div class="field">
-            <label for="key-openai">OpenAI</label>
-            <input id="key-openai" type="password" autocomplete="off" />
-          </div>
-          <div class="field">
-            <label for="key-anthropic">Anthropic</label>
-            <input id="key-anthropic" type="password" autocomplete="off" />
-          </div>
-          <div class="field">
-            <label for="key-xai">xAI</label>
-            <input id="key-xai" type="password" autocomplete="off" />
-          </div>
-        </div>
-
-        <div class="actions">
+      <div class="footer">
+        <div class="footer-inner">
           <div class="status" id="status" data-kind="idle">Loading settings...</div>
-          <button class="button" id="save" type="button">Save Changes</button>
+          <div class="actions">
+            <button class="button secondary" id="model-refresh-footer" type="button">Refresh Models</button>
+            <button class="button" id="save" type="button">Save Changes</button>
+          </div>
         </div>
-      </section>
+        <button class="resize-grip" id="resize-grip" type="button" title="Resize window" aria-label="Resize window"></button>
+      </div>
     </div>
 
     <script type="module" src="index.ts"></script>

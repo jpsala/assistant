@@ -11,10 +11,10 @@ type Settings = {
     reload: string;
   };
   windows: {
-    chat: { w: number; h: number };
-    picker: { w: number; h: number };
-    settings: { w: number; h: number };
-    editor: { w: number; h: number };
+    chat: { x: number; y: number; w: number; h: number };
+    picker: { x: number; y: number; w: number; h: number };
+    settings: { x: number; y: number; w: number; h: number };
+    editor: { x: number; y: number; w: number; h: number };
   };
   onboarded: boolean;
 };
@@ -22,14 +22,17 @@ type Settings = {
 declare global {
   interface Window {
     __SETTINGS_PORT__?: number;
+    __SETTINGS_RESIZABLE__?: boolean;
   }
 }
 
 const PORT = window.__SETTINGS_PORT__;
+const RESIZABLE = window.__SETTINGS_RESIZABLE__ !== false;
 
 const providerSelect = document.getElementById("provider") as HTMLSelectElement;
 const modelSelect = document.getElementById("model") as HTMLSelectElement;
 const modelRefresh = document.getElementById("model-refresh") as HTMLButtonElement;
+const modelRefreshFooter = document.getElementById("model-refresh-footer") as HTMLButtonElement;
 const modelHint = document.getElementById("model-hint")!;
 const saveButton = document.getElementById("save") as HTMLButtonElement;
 const statusEl = document.getElementById("status")!;
@@ -37,6 +40,7 @@ const maxTokens = document.getElementById("maxTokens") as HTMLInputElement;
 const promptChat = document.getElementById("promptChat") as HTMLInputElement;
 const promptPicker = document.getElementById("promptPicker") as HTMLInputElement;
 const reloadHotkey = document.getElementById("reloadHotkey") as HTMLInputElement;
+const resizeGrip = document.getElementById("resize-grip") as HTMLButtonElement;
 
 const apiKeyInputs: Record<Provider, HTMLInputElement> = {
   openrouter: document.getElementById("key-openrouter") as HTMLInputElement,
@@ -122,6 +126,7 @@ async function loadModels(preferred?: string) {
   setStatus("Loading models...", "loading");
   modelHint.textContent = apiKey ? "Refreshing model list for selected provider." : "Add an API key to fetch provider models.";
   modelRefresh.disabled = true;
+  modelRefreshFooter.disabled = true;
 
   try {
     if (!PORT) throw new Error("missing settings port");
@@ -148,6 +153,7 @@ async function loadModels(preferred?: string) {
     });
   } finally {
     modelRefresh.disabled = false;
+    modelRefreshFooter.disabled = false;
   }
 }
 
@@ -213,12 +219,57 @@ async function save() {
   }
 }
 
+function initResizeGrip() {
+  if (!PORT || !RESIZABLE) {
+    resizeGrip.hidden = true;
+    return;
+  }
+
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let startWidth = 0;
+  let startHeight = 0;
+
+  const onMove = (event: MouseEvent) => {
+    if (!dragging) return;
+    const width = Math.max(640, Math.round(startWidth + (event.clientX - startX)));
+    const height = Math.max(520, Math.round(startHeight + (event.clientY - startY)));
+    fetch(`http://localhost:${PORT}/window/resize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ width, height }),
+    }).catch(() => {});
+  };
+
+  const onUp = () => {
+    dragging = false;
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+
+  resizeGrip.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    dragging = true;
+    startX = event.clientX;
+    startY = event.clientY;
+    startWidth = window.innerWidth;
+    startHeight = window.innerHeight;
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
 providerSelect.addEventListener("change", () => {
   modelHint.textContent = "Provider changed. Refresh models or save directly.";
   sendLog("info", "provider_changed", { provider: providerSelect.value });
 });
 
 modelRefresh.addEventListener("click", () => {
+  void loadModels(modelSelect.value);
+});
+
+modelRefreshFooter.addEventListener("click", () => {
   void loadModels(modelSelect.value);
 });
 
@@ -235,3 +286,4 @@ document.getElementById("titlebar-close")?.addEventListener("click", () => {
 });
 
 void loadState();
+initResizeGrip();

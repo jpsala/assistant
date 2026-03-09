@@ -13,6 +13,7 @@ declare global {
   interface Window {
     __PICKER_PROMPTS__?: PromptInfo[];
     __PICKER_PORT__?: number;
+    __PICKER_RESIZABLE__?: boolean;
   }
 }
 
@@ -45,6 +46,7 @@ interface PickerSchema extends ElectrobunRPCSchema {
 let allPrompts: PromptInfo[] = window.__PICKER_PROMPTS__ ?? [];
 let selectedIndex = 0;
 const PORT = window.__PICKER_PORT__;
+const RESIZABLE = window.__PICKER_RESIZABLE__ !== false;
 
 function sendLog(
   level: "debug" | "info" | "warn" | "error",
@@ -84,6 +86,9 @@ const empty  = document.getElementById("empty")!;
 const busy   = document.getElementById("busy")!;
 const busyTitle = document.getElementById("busy-title")!;
 const busyMeta = document.getElementById("busy-meta")!;
+const footerRun = document.getElementById("footer-run") as HTMLButtonElement;
+const footerClose = document.getElementById("footer-close") as HTMLButtonElement;
+const resizeGrip = document.getElementById("resize-grip") as HTMLButtonElement;
 
 let isExecuting = false;
 
@@ -135,6 +140,8 @@ function render() {
   });
 
   list.querySelector(".item.selected")?.scrollIntoView({ block: "nearest" });
+  footerRun.disabled = isExecuting || !filtered[selectedIndex];
+  footerClose.disabled = isExecuting;
 }
 
 // ─── Actions (via fetch to local server) ─────────────────────────────────────
@@ -143,10 +150,14 @@ function setBusy(prompt?: PromptInfo) {
   isExecuting = Boolean(prompt);
   busy.classList.toggle("visible", isExecuting);
   search.disabled = isExecuting;
+  footerRun.disabled = isExecuting;
+  footerClose.disabled = isExecuting;
 
   if (prompt) {
     busyTitle.textContent = prompt.displayName;
     busyMeta.textContent = "Capturing selection and running prompt";
+  } else {
+    render();
   }
 }
 
@@ -191,6 +202,53 @@ function close() {
   });
 }
 
+function runSelected() {
+  const filtered = getFiltered();
+  const selected = filtered[selectedIndex];
+  if (selected) execute(selected);
+}
+
+function initResizeGrip() {
+  if (!PORT || !RESIZABLE) {
+    resizeGrip.hidden = true;
+    return;
+  }
+
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let startWidth = 0;
+  let startHeight = 0;
+
+  const onMove = (event: MouseEvent) => {
+    if (!dragging) return;
+    const width = Math.max(520, Math.round(startWidth + (event.clientX - startX)));
+    const height = Math.max(360, Math.round(startHeight + (event.clientY - startY)));
+    fetch(`http://localhost:${PORT}/window/resize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ width, height }),
+    }).catch(() => {});
+  };
+
+  const onUp = () => {
+    dragging = false;
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+
+  resizeGrip.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    dragging = true;
+    startX = event.clientX;
+    startY = event.clientY;
+    startWidth = window.innerWidth;
+    startHeight = window.innerHeight;
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
 // ─── Keyboard navigation ─────────────────────────────────────────────────────
 
 search.addEventListener("keydown", (e) => {
@@ -223,11 +281,14 @@ search.addEventListener("input", () => {
 // ─── Titlebar close ─────────────────────────────────────────────────────────
 
 document.getElementById("titlebar-close")?.addEventListener("click", () => close());
+footerClose.addEventListener("click", () => close());
+footerRun.addEventListener("click", () => runSelected());
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 render();
 sendLog("info", "booted", { promptCount: allPrompts.length });
+initResizeGrip();
 
 // WebView2 may not have OS focus yet when the page loads — poll until it does.
 function ensureFocus(retries = 30) {

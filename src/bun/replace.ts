@@ -57,6 +57,7 @@ export async function silentReplace(
     promptBody?: string; // override prompt body (from confirm dialog)
     inputText?: string;  // override captured text (from confirm dialog)
     hwnd?: unknown;      // target window (e.g. pre-captured before picker opened)
+    savedClipboard?: string | null; // clipboard captured alongside pre-captured input
     onStatus?: (status: ReplaceStatus) => void;
   } = {}
 ): Promise<ReplaceResult | null> {
@@ -90,7 +91,7 @@ export async function silentReplace(
     captureResult = {
       text: options.inputText,
       hwnd: options.hwnd ?? null,
-      savedClipboard: null,
+      savedClipboard: options.savedClipboard ?? null,
     };
   } else {
     notify("capturing", "Capturing selected text");

@@ -9,6 +9,7 @@
 declare global {
   interface Window {
     __EDITOR_PORT__?: number;
+    __EDITOR_RESIZABLE__?: boolean;
   }
 }
 
@@ -27,6 +28,7 @@ type ModelInfo = { id: string; name: string };
 // ─── State ──────────────────────────────────────────────────────────────────
 
 const PORT = window.__EDITOR_PORT__;
+const RESIZABLE = window.__EDITOR_RESIZABLE__ !== false;
 let allPrompts: PromptData[] = [];
 let filteredPrompts: PromptData[] = [];
 let promptActiveIdx = -1;
@@ -49,6 +51,7 @@ const promptText = document.getElementById("prompt-text") as HTMLTextAreaElement
 const confirmInput = document.getElementById("prompt-confirm") as HTMLInputElement;
 const btnDelete = document.getElementById("btn-delete") as HTMLButtonElement;
 const statusEl = document.getElementById("status")!;
+const resizeGrip = document.getElementById("resize-grip") as HTMLButtonElement;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -484,6 +487,47 @@ function closeWindow() {
   fetch(`http://localhost:${PORT}/close`, { method: "POST" }).catch(() => {});
 }
 
+function initResizeGrip() {
+  if (!PORT || !RESIZABLE) {
+    resizeGrip.hidden = true;
+    return;
+  }
+
+  let dragging = false;
+  let startX = 0;
+  let startY = 0;
+  let startWidth = 0;
+  let startHeight = 0;
+
+  const onMove = (event: MouseEvent) => {
+    if (!dragging) return;
+    const width = Math.max(680, Math.round(startWidth + (event.clientX - startX)));
+    const height = Math.max(560, Math.round(startHeight + (event.clientY - startY)));
+    fetch(`http://localhost:${PORT}/window/resize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ width, height }),
+    }).catch(() => {});
+  };
+
+  const onUp = () => {
+    dragging = false;
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+
+  resizeGrip.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    dragging = true;
+    startX = event.clientX;
+    startY = event.clientY;
+    startWidth = window.innerWidth;
+    startHeight = window.innerHeight;
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
 // ─── Buttons ────────────────────────────────────────────────────────────────
 
 document.getElementById("btn-save")!.addEventListener("click", () => {
@@ -525,3 +569,4 @@ document.addEventListener("keydown", (e) => {
 
 loadState().then(() => loadModels(defaultProvider));
 sendLog("info", "booted");
+initResizeGrip();

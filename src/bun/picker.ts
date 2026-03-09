@@ -23,6 +23,7 @@ import { silentReplace } from "./replace";
 import { handleReplaceStatus } from "./feedback";
 import { captureSelectedText, getForegroundWindow, findWindowByTitle, forceFocus, focusWebView2Child, logChildWindows, pasteText, clickToFocus, allowSetForegroundWindow } from "./ffi";
 import { createLogger } from "./logger";
+import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
 
 const log = createLogger("picker");
 
@@ -66,6 +67,7 @@ let _serverPort: number | null = null;
 let _sourceHwnd: unknown = null; // foreground window captured before picker opens
 let _pickerHwnd: unknown = null;  // HWND of the picker frame (set after window creation)
 let _capturedInputText: string | null = null;
+let _capturedSavedClipboard: string | null = null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -165,7 +167,7 @@ async function startPickerServer(): Promise<number> {
         const promptsJson = JSON.stringify(getPromptInfos());
         const htmlWithData = finalHtml.replace(
           "</head>",
-          `<script>window.__PICKER_PROMPTS__ = ${promptsJson}; window.__PICKER_PORT__ = ${server.port};</script>\n</head>`,
+          `<script>window.__PICKER_PROMPTS__ = ${promptsJson}; window.__PICKER_PORT__ = ${server.port}; window.__PICKER_RESIZABLE__ = true;</script>\n</head>`,
         );
         return new Response(htmlWithData, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -185,6 +187,7 @@ async function startPickerServer(): Promise<number> {
         if (prompt) {
           const hwnd = _sourceHwnd;
           const inputText = _capturedInputText;
+          const savedClipboard = _capturedSavedClipboard;
           hidePicker(); // close window so source can regain focus
           if (DEBUG_REPLACE) {
             // Debug mode: skip capture + LLM, paste a dummy string instead.
@@ -210,6 +213,7 @@ async function startPickerServer(): Promise<number> {
               silentReplace(prompt, {
                 hwnd,
                 inputText: inputText ?? undefined,
+                savedClipboard,
                 onStatus: handleReplaceStatus,
               }).catch((e) =>
                 log.error("execute.replace_failed", { name, error: e }),
@@ -243,6 +247,14 @@ async function startPickerServer(): Promise<number> {
       if (req.method === "POST" && path === "/close") {
         log.info("close.requested");
         hidePicker();
+        return new Response("ok");
+      }
+
+      if (req.method === "POST" && path === "/window/resize") {
+        const body = await req.json() as { width?: number; height?: number };
+        if (_window && body.width && body.height) {
+          _window.setSize(body.width, body.height);
+        }
         return new Response("ok");
       }
 
@@ -302,6 +314,7 @@ export async function showPicker(): Promise<void> {
   try {
     const captured = await captureSelectedText(_sourceHwnd);
     _capturedInputText = captured.text;
+    _capturedSavedClipboard = captured.savedClipboard;
     log.info("show.pre_capture_completed", {
       hwnd: captured.hwnd,
       chars: captured.text.length,
@@ -309,6 +322,7 @@ export async function showPicker(): Promise<void> {
     });
   } catch (error) {
     _capturedInputText = null;
+    _capturedSavedClipboard = null;
     log.error("show.pre_capture_failed", { error });
   }
 
@@ -325,9 +339,10 @@ export async function showPicker(): Promise<void> {
   if (port === null) return;
 
   log.info("window.creating", { port });
+  const frame = getWindowFrame("picker");
   _window = new BrowserWindow({
     title: "Prompt Picker",
-    frame: { x: 320, y: 180, width: 640, height: 460 },
+    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
     url: `http://localhost:${port}/`,
     html: null,
     titleBarStyle: "hidden",
@@ -335,6 +350,7 @@ export async function showPicker(): Promise<void> {
     rpc,
   });
 
+  bindWindowStatePersistence(_window, "picker");
   _window.setAlwaysOnTop(true);
   _window.show();
 

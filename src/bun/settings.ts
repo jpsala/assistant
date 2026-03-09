@@ -31,10 +31,10 @@ export type Settings = {
 
   // Window sizes (persisted across sessions)
   windows: {
-    chat: { w: number; h: number };
-    picker: { w: number; h: number };
-    settings: { w: number; h: number };
-    editor: { w: number; h: number };
+    chat: { x: number; y: number; w: number; h: number };
+    picker: { x: number; y: number; w: number; h: number };
+    settings: { x: number; y: number; w: number; h: number };
+    editor: { x: number; y: number; w: number; h: number };
   };
 
   // First-run flag
@@ -52,10 +52,10 @@ const DEFAULTS: Settings = {
     reload: "",
   },
   windows: {
-    chat: { w: 700, h: 600 },
-    picker: { w: 560, h: 400 },
-    settings: { w: 600, h: 500 },
-    editor: { w: 600, h: 520 },
+    chat: { x: 220, y: 120, w: 700, h: 600 },
+    picker: { x: 320, y: 180, w: 640, h: 460 },
+    settings: { x: 360, y: 120, w: 720, h: 640 },
+    editor: { x: 280, y: 80, w: 760, h: 680 },
   },
   onboarded: false,
 };

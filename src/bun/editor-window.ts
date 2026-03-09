@@ -10,6 +10,7 @@ import { BrowserWindow } from "electrobun/bun";
 import { fetchModels } from "./llm";
 import { createLogger } from "./logger";
 import { getSettings } from "./settings";
+import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
 import {
   getPrompts,
   savePrompt,
@@ -106,7 +107,7 @@ async function ensureServer(): Promise<number> {
       if (path === "/" || path === "/index.html") {
         const payload = finalHtml.replace(
           "</head>",
-          `<script>window.__EDITOR_PORT__ = ${server!.port};</script>\n</head>`,
+          `<script>window.__EDITOR_PORT__ = ${server!.port}; window.__EDITOR_RESIZABLE__ = true;</script>\n</head>`,
         );
         return new Response(payload, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -210,6 +211,14 @@ async function ensureServer(): Promise<number> {
         return new Response("ok");
       }
 
+      if (req.method === "POST" && path === "/window/resize") {
+        const body = await req.json() as { width?: number; height?: number };
+        if (editorWindow && body.width && body.height) {
+          editorWindow.setSize(body.width, body.height);
+        }
+        return new Response("ok");
+      }
+
       // ── POST /log — structured logging from webview ────────────────
       if (req.method === "POST" && path === "/log") {
         const body = (await req.json()) as {
@@ -255,16 +264,17 @@ export async function showEditorWindow(): Promise<void> {
     }
   }
 
-  const size = getSettings().windows.editor;
-  log.info("window.creating", size);
+  const frame = getWindowFrame("editor");
+  log.info("window.creating", frame);
   editorWindow = new BrowserWindow({
     title: "Prompt Editor",
-    frame: { x: 280, y: 80, width: size.w, height: size.h },
+    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
     url: `http://localhost:${port}/`,
     html: null,
     titleBarStyle: "hidden",
     transparent: false,
   });
 
+  bindWindowStatePersistence(editorWindow, "editor");
   editorWindow.show();
 }

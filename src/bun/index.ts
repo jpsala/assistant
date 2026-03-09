@@ -91,13 +91,18 @@ function applyPromptHotkeys(prompts: PromptMap): void {
     const key = `prompt:${name}`;
     if (activePromptHotkeys.has(name)) unregisterHotkey(key);
 
-    const ok = registerHotkey(key, prompt.hotkey, () => {
+    const ok = registerHotkey(key, prompt.hotkey, (context) => {
       log.info("prompt.hotkey_triggered", { name, hotkey: prompt.hotkey });
       if (prompt.confirm) {
         log.info("prompt.confirm_not_implemented", { name });
         return;
       }
-      silentReplace(prompt, { onStatus: handleReplaceStatus }).catch((e) =>
+      silentReplace(prompt, {
+        inputText: context?.preCaptured?.text,
+        hwnd: context?.preCaptured?.hwnd,
+        savedClipboard: context?.preCaptured?.savedClipboard,
+        onStatus: handleReplaceStatus,
+      }).catch((e) =>
         log.error("prompt.replace_failed", { name, error: e })
       );
     });

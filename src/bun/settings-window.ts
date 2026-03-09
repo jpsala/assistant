@@ -4,6 +4,7 @@ import { fetchModels } from "./llm";
 import { createLogger } from "./logger";
 import { getSettings, saveSettings, type Settings } from "./settings";
 import type { Provider } from "./prompts";
+import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
 
 const log = createLogger("settings-window");
 
@@ -96,7 +97,7 @@ async function ensureServer(): Promise<number> {
       if (path === "/" || path === "/index.html") {
         const payload = finalHtml.replace(
           "</head>",
-          `<script>window.__SETTINGS_PORT__ = ${server!.port};</script>\n</head>`,
+          `<script>window.__SETTINGS_PORT__ = ${server!.port}; window.__SETTINGS_RESIZABLE__ = true;</script>\n</head>`,
         );
         return new Response(payload, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -157,6 +158,14 @@ async function ensureServer(): Promise<number> {
         return new Response("ok");
       }
 
+      if (req.method === "POST" && path === "/window/resize") {
+        const body = await req.json() as { width?: number; height?: number };
+        if (settingsWindow && body.width && body.height) {
+          settingsWindow.setSize(body.width, body.height);
+        }
+        return new Response("ok");
+      }
+
       if (req.method === "POST" && path === "/log") {
         const body = await req.json() as {
           level?: "debug" | "info" | "warn" | "error";
@@ -202,16 +211,17 @@ export async function showSettingsWindow(): Promise<void> {
     }
   }
 
-  const size = getSettings().windows.settings;
-  log.info("window.creating", size);
+  const frame = getWindowFrame("settings");
+  log.info("window.creating", frame);
   settingsWindow = new BrowserWindow({
     title: "Settings",
-    frame: { x: 360, y: 120, width: size.w, height: size.h },
+    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
     url: `http://localhost:${port}/`,
     html: null,
     titleBarStyle: "hidden",
     transparent: false,
   });
 
+  bindWindowStatePersistence(settingsWindow, "settings");
   settingsWindow.show();
 }

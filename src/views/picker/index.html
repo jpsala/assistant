@@ -12,13 +12,18 @@
 
       html, body {
         height: 100%;
-        overflow: hidden;
         background:
           radial-gradient(circle at top left, rgba(120, 119, 198, 0.18), transparent 34%),
           linear-gradient(180deg, #17192b, #111322 72%);
         color: #e0e0f0;
         font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
         font-size: 14px;
+        overflow: hidden;
+      }
+
+      body {
+        display: grid;
+        grid-template-rows: auto auto 1fr auto;
       }
 
       /* ── Custom titlebar ── */
@@ -27,14 +32,19 @@
         align-items: center;
         height: 34px;
         padding: 0 4px 0 14px;
-        -webkit-app-region: drag;
         user-select: none;
         flex-shrink: 0;
         border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       }
 
-      .titlebar-title {
+      .titlebar-drag {
         flex: 1;
+        height: 100%;
+        display: flex;
+        align-items: center;
+      }
+
+      .titlebar-title {
         font-size: 12px;
         font-weight: 600;
         color: rgba(255, 255, 255, 0.45);
@@ -103,8 +113,8 @@
       /* ── List ── */
       #list {
         overflow-y: auto;
-        max-height: calc(100vh - 99px);
         padding: 6px 0;
+        min-height: 0;
       }
 
       #list::-webkit-scrollbar {
@@ -176,6 +186,15 @@
         padding: 48px 24px;
         font-size: 14px;
         line-height: 1.6;
+        display: grid;
+        place-items: center;
+        min-height: 0;
+      }
+
+      .list-shell {
+        min-height: 0;
+        overflow: hidden;
+        display: grid;
       }
 
       /* ── Busy overlay ── */
@@ -270,11 +289,115 @@
         50% { transform: translateX(205%); }
         100% { transform: translateX(-18%); }
       }
+
+      .footer {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 14px 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
+        background: rgba(9, 11, 20, 0.56);
+        backdrop-filter: blur(12px);
+      }
+
+      .footer-meta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 12px;
+      }
+
+      .keyhint {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+
+      .keyhint kbd {
+        padding: 2px 7px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(255, 255, 255, 0.88);
+        font-family: "Consolas", "Fira Mono", monospace;
+        font-size: 11px;
+      }
+
+      .footer-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-right: 22px;
+      }
+
+      .footer-button {
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.06);
+        color: #eef2ff;
+        border-radius: 9px;
+        padding: 8px 12px;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+      }
+
+      .footer-button:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+
+      .footer-button.primary {
+        background: rgba(139, 92, 246, 0.88);
+        border-color: rgba(139, 92, 246, 1);
+      }
+
+      .footer-button.primary:hover {
+        background: rgba(139, 92, 246, 1);
+      }
+
+      .footer-button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+
+      .resize-grip {
+        position: absolute;
+        right: 8px;
+        bottom: 6px;
+        width: 20px;
+        height: 20px;
+        border: 0;
+        background: transparent;
+        cursor: nwse-resize;
+        opacity: 0.6;
+      }
+
+      .resize-grip::before {
+        content: "";
+        position: absolute;
+        inset: 4px 3px 3px 4px;
+        background:
+          linear-gradient(135deg, transparent 0 52%, rgba(255, 255, 255, 0.7) 52% 58%, transparent 58% 100%),
+          linear-gradient(135deg, transparent 0 70%, rgba(255, 255, 255, 0.52) 70% 76%, transparent 76% 100%),
+          linear-gradient(135deg, transparent 0 87%, rgba(255, 255, 255, 0.34) 87% 93%, transparent 93% 100%);
+      }
+
+      .resize-grip:hover {
+        opacity: 1;
+      }
     </style>
   </head>
   <body>
     <div class="titlebar">
-      <span class="titlebar-title">Prompt Picker</span>
+      <div class="titlebar-drag electrobun-webkit-app-region-drag">
+        <span class="titlebar-title">Prompt Picker</span>
+      </div>
       <button class="titlebar-close" id="titlebar-close" title="Close">&#x2715;</button>
     </div>
     <div id="search-wrapper">
@@ -286,8 +409,22 @@
         spellcheck="false"
       />
     </div>
-    <div id="list"></div>
-    <div id="empty" style="display: none">No prompts found</div>
+    <div class="list-shell">
+      <div id="list"></div>
+      <div id="empty" style="display: none">No prompts found</div>
+    </div>
+    <div class="footer">
+      <div class="footer-meta">
+        <span class="keyhint"><kbd>↑↓</kbd><span>Navigate</span></span>
+        <span class="keyhint"><kbd>Enter</kbd><span>Run</span></span>
+        <span class="keyhint"><kbd>Esc</kbd><span>Close</span></span>
+      </div>
+      <div class="footer-actions">
+        <button class="footer-button" id="footer-close" type="button">Close</button>
+        <button class="footer-button primary" id="footer-run" type="button">Run Prompt</button>
+      </div>
+      <button class="resize-grip" id="resize-grip" type="button" title="Resize window" aria-label="Resize window"></button>
+    </div>
     <div id="busy" aria-hidden="true">
       <div class="busy-card">
         <div class="busy-chip">

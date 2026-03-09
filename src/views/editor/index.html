@@ -43,14 +43,19 @@
         align-items: center;
         height: 34px;
         padding: 0 4px 0 14px;
-        -webkit-app-region: drag;
         user-select: none;
         flex-shrink: 0;
         border-bottom: 1px solid var(--border);
       }
 
-      .titlebar-title {
+      .titlebar-drag {
         flex: 1;
+        height: 100%;
+        display: flex;
+        align-items: center;
+      }
+
+      .titlebar-title {
         font-size: 12px;
         font-weight: 600;
         color: rgba(255, 255, 255, 0.45);
@@ -85,6 +90,7 @@
         padding: 12px 16px 0;
         overflow: hidden;
         min-height: 0;
+        resize: none;
       }
 
       .scroll-area {
@@ -268,6 +274,7 @@
 
       /* ── Footer ── */
       .footer {
+        position: relative;
         flex-shrink: 0;
         border-top: 1px solid var(--border);
         padding: 10px 16px 12px;
@@ -277,6 +284,7 @@
         display: flex;
         gap: 8px;
         align-items: center;
+        padding-right: 24px;
       }
 
       .spacer { flex: 1; }
@@ -323,6 +331,32 @@
       #status[data-kind="ok"] { color: #3ddc97; }
       #status[data-kind="error"] { color: var(--danger); }
 
+      .resize-grip {
+        position: absolute;
+        right: 8px;
+        bottom: 6px;
+        width: 20px;
+        height: 20px;
+        border: 0;
+        background: transparent;
+        cursor: nwse-resize;
+        opacity: 0.6;
+      }
+
+      .resize-grip::before {
+        content: "";
+        position: absolute;
+        inset: 4px 3px 3px 4px;
+        background:
+          linear-gradient(135deg, transparent 0 52%, rgba(255, 255, 255, 0.7) 52% 58%, transparent 58% 100%),
+          linear-gradient(135deg, transparent 0 70%, rgba(255, 255, 255, 0.52) 70% 76%, transparent 76% 100%),
+          linear-gradient(135deg, transparent 0 87%, rgba(255, 255, 255, 0.34) 87% 93%, transparent 93% 100%);
+      }
+
+      .resize-grip:hover {
+        opacity: 1;
+      }
+
       /* ── Scrollbar ── */
       ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
@@ -331,7 +365,9 @@
   </head>
   <body>
     <div class="titlebar">
-      <span class="titlebar-title">Prompt Editor</span>
+      <div class="titlebar-drag electrobun-webkit-app-region-drag">
+        <span class="titlebar-title">Prompt Editor</span>
+      </div>
       <button class="titlebar-close" id="titlebar-close" title="Close">&#x2715;</button>
     </div>
 
@@ -406,6 +442,7 @@
         <button id="btn-close">Close</button>
       </div>
       <div id="status" data-kind="idle">Select a prompt to edit</div>
+      <button class="resize-grip" id="resize-grip" type="button" title="Resize window" aria-label="Resize window"></button>
     </div>
 
     <script type="module" src="index.ts"></script>

@@ -7,6 +7,7 @@
  */
 
 import { GlobalShortcut } from "electrobun/bun";
+import { captureSelectedText, getForegroundWindow, type CaptureResult } from "./ffi";
 
 // ─── Format conversion ────────────────────────────────────────────────────────
 
@@ -81,7 +82,11 @@ function parseChord(
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-type HotkeyCallback = () => void;
+export type HotkeyTriggerContext = {
+  preCaptured?: CaptureResult;
+};
+
+type HotkeyCallback = (context?: HotkeyTriggerContext) => void | Promise<void>;
 
 // name → accelerator (for cleanup)
 const registered = new Map<string, string[]>();
@@ -90,6 +95,7 @@ const registered = new Map<string, string[]>();
 type ChordState = {
   actions: Map<string, HotkeyCallback>;
   timer: Timer | null;
+  preCapture: Promise<CaptureResult | null> | null;
 };
 const chordPrefixes = new Map<string, ChordState>();
 
@@ -123,23 +129,33 @@ function registerChord(
 ): boolean {
   // Ensure prefix is registered
   if (!chordPrefixes.has(prefix)) {
-    const state: ChordState = { actions: new Map(), timer: null };
+    const state: ChordState = { actions: new Map(), timer: null, preCapture: null };
     chordPrefixes.set(prefix, state);
 
     const ok = _register(prefix, () => {
       const s = chordPrefixes.get(prefix)!;
+      const sourceHwnd = getForegroundWindow();
+      s.preCapture = (async () => {
+        try {
+          return await captureSelectedText(sourceHwnd);
+        } catch {
+          return null;
+        }
+      })();
 
       // Cancel existing timer
       if (s.timer !== null) clearTimeout(s.timer);
 
       // Register all suffix keys temporarily
       for (const [suf, action] of s.actions) {
-        GlobalShortcut.register(suf, () => {
+        GlobalShortcut.register(suf, async () => {
           // Unregister suffix immediately (one-shot)
           GlobalShortcut.unregister(suf);
           if (s.timer !== null) clearTimeout(s.timer);
           s.timer = null;
-          action();
+          const preCaptured = await s.preCapture;
+          s.preCapture = null;
+          await action(preCaptured ? { preCaptured } : undefined);
         });
       }
 
@@ -148,6 +164,7 @@ function registerChord(
         for (const suf of s.actions.keys()) {
           GlobalShortcut.unregister(suf);
         }
+        s.preCapture = null;
         s.timer = null;
       }, CHORD_TIMEOUT_MS);
     });
