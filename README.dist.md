@@ -91,8 +91,7 @@ Your prompt here.
 |------|-------------|
 | `ai-assistant.exe` | Main application |
 | `backend\src\index.ts` | Bundled backend entrypoint |
-| `.env` | Seed configuration bundled with the app |
-| `.env.example` | Example env file with all supported providers |
+| `.env.dist` | Example env template bundled with the app |
 | `%LocalAppData%\AI Assistant\prompts\*.md` | Editable command definitions |
 | `%LocalAppData%\AI Assistant\model.conf` | Selected model |
 | `%LocalAppData%\AI Assistant\settings.conf` | Hotkeys and settings |

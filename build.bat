@@ -114,11 +114,9 @@ if exist "%SRC%prompts\*.md" (
 :: Copy README for end users
 if exist "%SRC%README.dist.md" copy "%SRC%README.dist.md" "%DIST%\README.md" >nul
 
-:: Copy config files if present in source
-if exist "%SRC%.env" (
-    powershell -NoProfile -Command "Copy-Item -Force '%SRC%.env' '%DIST%\.env'"
-) else if exist "%SRC%.env.dist" (
-    powershell -NoProfile -Command "Copy-Item -Force '%SRC%.env.dist' '%DIST%\.env'"
+:: Copy non-secret config templates only. Runtime setup writes the real local config.
+if exist "%SRC%.env.dist" (
+    powershell -NoProfile -Command "Copy-Item -Force '%SRC%.env.dist' '%DIST%\.env.dist'"
 )
 if exist "%SRC%model.conf" powershell -NoProfile -Command "Copy-Item -Force '%SRC%model.conf' '%DIST%\model.conf'"
 if exist "%SRC%settings.conf" powershell -NoProfile -Command "Copy-Item -Force '%SRC%settings.conf' '%DIST%\settings.conf'"
