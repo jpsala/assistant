@@ -488,6 +488,7 @@ ShowPickerWindow(mode := "silent") {
 
     ; Remember where focus was so we can restore it on close/pick
     pickerPrevWin := WinExist("A")
+    SendCommandsToPickerUI()
 
     ; Center on active monitor, slightly above middle
     GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
@@ -495,7 +496,9 @@ ShowPickerWindow(mode := "silent") {
     x := ml + (mr - ml - w) // 2
     y := mt + (mb - mt - h) // 3
     pickerGui.Show("x" . x . " y" . y . " w" . w . " h" . h)
-    ScheduleWindowFocus("picker", pickerGui, pickerReady ? "resetAndFocus()" : "", 1800)
+    if pickerReady
+        pickerGui.ExecuteScriptAsync("resetAndFocus()")
+    ScheduleWindowFocus("picker", pickerGui, pickerReady ? "ensureInputFocus()" : "", 1800)
 }
 
 PickerMessageHandler(wv, msg) {
@@ -513,7 +516,12 @@ HandlePickerAction(action, rawJson) {
     switch action {
     case "ready":
         pickerReady := true
-        ScheduleWindowFocus("picker", pickerGui, "resetAndFocus()", 1000)
+        SendCommandsToPickerUI()
+        try {
+            if WinExist("ahk_id " . pickerGui.Hwnd)
+                pickerGui.ExecuteScriptAsync("resetAndFocus()")
+        }
+        ScheduleWindowFocus("picker", pickerGui, "ensureInputFocus()", 1000)
 
     case "pick":
         promptName := ""
@@ -548,6 +556,27 @@ PickerWindowClose(*) {
     PersistWindowSize(pickerGui, "picker")
     pickerGui.Hide()
     return 1
+}
+
+SendCommandsToPickerUI() {
+    global pickerGui, pickerReady
+    if !IsObject(pickerGui) || !pickerReady
+        return
+    pickerGui.ExecuteScriptAsync("setPromptCatalog(" . BuildPickerCatalogJson() . ")")
+}
+
+BuildPickerCatalogJson() {
+    global ALL_COMMAND_NAMES, COMMAND_HOTKEYS, COMMAND_MODELS
+    json := "["
+    for i, name in ALL_COMMAND_NAMES {
+        if (i > 1)
+            json .= ","
+        hotkeyVal := COMMAND_HOTKEYS.Has(name) ? EscJson(COMMAND_HOTKEYS[name]) : ""
+        modelId := COMMAND_MODELS.Has(name) ? EscJson(COMMAND_MODELS[name]) : ""
+        json .= '{"name":"' . EscJson(name) . '","hotkey":"' . hotkeyVal . '","model":"' . modelId . '"}'
+    }
+    json .= "]"
+    return json
 }
 
 ; ============================================================
@@ -1557,6 +1586,7 @@ CheckPromptsReload() {
     if (currentMod != PROMPTS_LAST_MOD) {
         LoadPrompts()
         SendCommandsToIterativeUI()
+        SendCommandsToPickerUI()
         ShowTip("Prompts reloaded (" . ALL_COMMAND_NAMES.Length . " commands)", 2000)
     }
 }
@@ -1567,10 +1597,15 @@ LoadPrompts()
 ; Check for changes every 5 seconds
 SetTimer(CheckPromptsReload, 5000)
 
+WarmStartupResources() {
+    EnsureBackendServer()
+}
+
 ; Startup beep (audible feedback on reload)
 SoundBeep(800, 100)
 
 ; Pre-load WebViews in background (deferred so they don't block startup)
+SetTimer(WarmStartupResources, -200)
 SetTimer(InitIterativeWindow, -500)
 SetTimer(InitPickerWindow, -800)
 SetTimer(InitPromptConfirmWindow, -1100)

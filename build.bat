@@ -57,6 +57,10 @@ echo.
 if exist "%DIST%" rmdir /s /q "%DIST%"
 mkdir "%DIST%"
 mkdir "%DIST%\ui"
+mkdir "%DIST%\backend"
+mkdir "%DIST%\backend\src"
+mkdir "%DIST%\data"
+mkdir "%DIST%\data\conversations"
 mkdir "%DIST%\lib\32bit"
 mkdir "%DIST%\lib\64bit"
 
@@ -81,6 +85,8 @@ copy "%SRC%ui\picker.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\shared.css" "%DIST%\ui\" >nul
 copy "%SRC%ui\window-ui.js" "%DIST%\ui\" >nul
 copy "%SRC%ui\ahk-bridge.js" "%DIST%\ui\" >nul
+copy "%SRC%backend\src\index.ts" "%DIST%\backend\src\" >nul
+copy "%SRC%backend\src\smoke-test.ts" "%DIST%\backend\src\" >nul
 copy "%SRC%lib\32bit\WebView2Loader.dll" "%DIST%\lib\32bit\" >nul
 copy "%SRC%lib\64bit\WebView2Loader.dll" "%DIST%\lib\64bit\" >nul
 if exist "%SRC%icon.ico" copy "%SRC%icon.ico" "%DIST%\" >nul
@@ -95,9 +101,13 @@ if exist "%SRC%prompts\*.md" (
 if exist "%SRC%README.dist.md" copy "%SRC%README.dist.md" "%DIST%\README.md" >nul
 
 :: Copy config files if present in source
-if exist "%SRC%.env.dist" copy "%SRC%.env.dist" "%DIST%\.env" >nul
-if exist "%SRC%model.conf" copy "%SRC%model.conf" "%DIST%\" >nul
-if exist "%SRC%settings.conf" copy "%SRC%settings.conf" "%DIST%\" >nul
+if exist "%SRC%.env" (
+    powershell -NoProfile -Command "Copy-Item -Force '%SRC%.env' '%DIST%\.env'"
+) else if exist "%SRC%.env.dist" (
+    powershell -NoProfile -Command "Copy-Item -Force '%SRC%.env.dist' '%DIST%\.env'"
+)
+if exist "%SRC%model.conf" powershell -NoProfile -Command "Copy-Item -Force '%SRC%model.conf' '%DIST%\model.conf'"
+if exist "%SRC%settings.conf" powershell -NoProfile -Command "Copy-Item -Force '%SRC%settings.conf' '%DIST%\settings.conf'"
 
 :: Create zip archive
 echo Creating zip...

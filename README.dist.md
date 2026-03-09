@@ -14,10 +14,15 @@ Current architecture:
 3. Add at least one provider API key (`OPENROUTER_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`)
 4. Save and restart the app
 
+Optional for full desktop features:
+
+5. Install Bun if you want the local backend features (`Prompt Chat`, `Settings`, streaming replies, prompt watching, saved conversations)
+6. The packaged app includes the backend source under `backend\src\`, and starts it automatically when Bun is available
+
 Optional for development:
 
-5. Install Bun and run `bun install`
-6. Start the backend with `bun run backend:dev`
+7. From the source repo, run `bun install`
+8. Start the backend with `bun run backend:dev`
 
 ## Usage
 
@@ -90,7 +95,7 @@ Your prompt here.
 | File | Description |
 |------|-------------|
 | `ai-assistant.exe` | Main application |
-| `backend\src\index.ts` | Optional Bun backend for streaming/persistence |
+| `backend\src\index.ts` | Bundled Bun backend entrypoint used by packaged app features |
 | `.env` | API keys (created on first run) |
 | `.env.example` | Example env file with all supported providers |
 | `prompts\*.md` | Command definitions |

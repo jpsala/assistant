@@ -188,6 +188,28 @@ BackendHealthCheck() {
     }
 }
 
+ResolveBunCandidate(candidate) {
+    if (candidate = "")
+        return ""
+
+    candidate := Trim(candidate, "`r`n`t `"`"")
+    if (candidate = "")
+        return ""
+
+    if FileExist(candidate) {
+        SplitPath(candidate,,, &ext, &name, &dir)
+        ext := StrLower(ext)
+        if (ext = "ps1" || ext = "cmd" || ext = "bat") {
+            wrappedExe := dir . "\node_modules\bun\bin\bun.exe"
+            if FileExist(wrappedExe)
+                return wrappedExe
+        }
+        return candidate
+    }
+
+    return ""
+}
+
 FindBunExecutable() {
     global BUN_EXECUTABLE
 
@@ -196,16 +218,21 @@ FindBunExecutable() {
 
     localAppData := EnvGet("LocalAppData")
     userProfile := EnvGet("UserProfile")
+    programFiles := EnvGet("ProgramFiles")
+    programFilesX86 := EnvGet("ProgramFiles(x86)")
     candidates := [
         EnvGet("BUN_EXE"),
+        A_ScriptDir . "\node_modules\bun\bin\bun.exe",
         localAppData != "" ? localAppData . "\Programs\Bun\bun.exe" : "",
-        userProfile != "" ? userProfile . "\.bun\bin\bun.exe" : ""
+        userProfile != "" ? userProfile . "\.bun\bin\bun.exe" : "",
+        programFiles != "" ? programFiles . "\nodejs\node_modules\bun\bin\bun.exe" : "",
+        programFilesX86 != "" ? programFilesX86 . "\nodejs\node_modules\bun\bin\bun.exe" : ""
     ]
 
     for _, candidate in candidates {
-        candidate := Trim(candidate)
-        if (candidate != "" && FileExist(candidate)) {
-            BUN_EXECUTABLE := candidate
+        resolved := ResolveBunCandidate(candidate)
+        if (resolved != "") {
+            BUN_EXECUTABLE := resolved
             return BUN_EXECUTABLE
         }
     }
@@ -218,8 +245,9 @@ FindBunExecutable() {
             path := Trim(FileRead(tempFile, "UTF-8"))
             if InStr(path, "`n")
                 path := Trim(StrSplit(path, "`n")[1], "`r`n`t ")
-            if (path != "" && FileExist(path)) {
-                BUN_EXECUTABLE := path
+            resolved := ResolveBunCandidate(path)
+            if (resolved != "") {
+                BUN_EXECUTABLE := resolved
                 return BUN_EXECUTABLE
             }
         }

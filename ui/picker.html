@@ -157,6 +157,8 @@
   let filteredCommands = [];
   let activeIdx = 0;
   let promptWatch = null;
+  let hasCatalogData = false;
+  let promptLoadStarted = false;
   const backendBaseUrl = 'http://127.0.0.1:8765';
 
   // =============================================
@@ -187,12 +189,25 @@
       hotkey: item.hotkey || '',
       model: item.model || ''
     }));
+    hasCatalogData = allCommands.length > 0;
+    statusEl.textContent = allCommands.length > 0
+      ? `${allCommands.length} prompts`
+      : 'No prompts available';
     applyFilter();
   }
 
+  function setPromptCatalog(data) {
+    setCommands(Array.isArray(data) ? data : []);
+  }
+
   async function loadPromptCatalog() {
-    const payload = await fetchJson('/v1/prompts');
-    setCommands(payload.prompts || []);
+    promptLoadStarted = true;
+    try {
+      const payload = await fetchJson('/v1/prompts');
+      setCommands(payload.prompts || []);
+    } finally {
+      promptLoadStarted = false;
+    }
   }
 
   function connectPromptWatch() {
@@ -216,6 +231,12 @@
   function resetAndFocus() {
     filterInput.value = '';
     applyFilter();
+    if (!hasCatalogData && !promptLoadStarted) {
+      loadPromptCatalog().catch(() => {
+        if (!hasCatalogData)
+          statusEl.textContent = 'Could not load prompts';
+      });
+    }
     ensureInputFocus();
   }
 
@@ -377,7 +398,8 @@
     initWindowUI({ persistTextareaSize: false });
     connectPromptWatch();
     loadPromptCatalog().catch(() => {
-      statusEl.textContent = 'Could not load prompts';
+      if (!hasCatalogData)
+        statusEl.textContent = 'Could not load prompts';
     });
     postToAHK({ action: 'ready' });
   });
