@@ -2,7 +2,11 @@
 
 ## Project
 
-AHK v2 system tray app for text processing via Claude/OpenRouter. Runs on Windows 11 (not WSL). Dev path: `/home/jp/dev/ai-assistant/` → symlink to `/mnt/c/tools/ai-assistant/`.
+Hybrid Windows desktop app:
+- AHK v2 handles tray behavior, global hotkeys, clipboard automation, and WebView2 windows
+- Bun/TypeScript backend handles provider I/O, streaming SSE, prompt watching, and conversation persistence
+
+Runs on Windows 11 (not WSL).
 
 ## Workflow
 
@@ -21,12 +25,14 @@ AHK v2 system tray app for text processing via Claude/OpenRouter. Runs on Window
 - AHK v2 syntax (not v1).
 - UTF-8 everywhere.
 - **WebViewToo** is the only external dependency (for WebView2 GUI). Included in `lib/`.
-- JSON built via string concatenation, parsed with RegEx.
+- AHK fallback JSON is still built via string concatenation and parsed with RegEx.
+- Backend code in `backend/src/` is TypeScript running on Bun.
 - Prompts live directly in `prompts/` as `.md` files.
 
 ## Files
 
 - `ai-assistant.ahk` — main entry point (tray, hotkeys, WebView GUI, .env loading).
+- `backend/src/index.ts` — Bun backend server on `127.0.0.1:8765`.
 - `ui/iterative.html` — Prompt Chat UI.
 - `ui/picker.html` — Prompt Picker popup (filterable spotlight-style, pre-loaded at startup).
 - `ui/settings.html` — Settings window.
@@ -37,7 +43,9 @@ AHK v2 system tray app for text processing via Claude/OpenRouter. Runs on Window
 - `lib/prompts.ahk` — style definitions, task prompts, GetSystemPrompt().
 - `lib/lang.ahk` — language detection.
 - `lib/WebViewToo.ahk` + `lib/WebView2.ahk` + DLLs — WebView2 library.
-- `prompts/*.md` — command definitions (hot-reloaded every 5s).
+- `prompts/*.md` — command definitions (AHK polls every 5s, Bun can watch/push updates instantly).
+- `data/conversations/*.json` — persisted Prompt Chat sessions written by the Bun backend.
+- `package.json` / `tsconfig.json` / `bun.lock` — backend tooling.
 - `.env` — API key (gitignored, never commit).
 - `model.conf` — persisted selected model.
 - `settings.conf` — all other persistent settings (key=value, one per line).
@@ -99,7 +107,7 @@ Windows are **hidden** on close, not destroyed. The `OnEvent("Close", ...)` hand
 
 ### JSON handling — string concatenation + RegEx
 
-There is no JSON library. Two escape functions with different purposes:
+On the AHK side there is still no JSON library. Two escape functions with different purposes:
 
 - `EscJson(s)` — escapes for embedding in a JS string literal sent via `ExecuteScriptAsync`. Newlines become literal `\n` characters in the JS string.
 - `EscJsonFile(s)` — escapes for writing to `.json` files. Newlines become the two-character sequence `\n`.
@@ -109,10 +117,17 @@ Always wrap values in `EscJson()` before embedding them in `ExecuteScriptAsync(.
 wvGui.ExecuteScriptAsync('setResult("' . EscJson(result) . '")')
 ```
 
+For new backend/provider logic, prefer implementing it in Bun instead of extending the AHK regex path.
+
 ### JS ↔ AHK communication
 
 **JS → AHK:** `window.chrome.webview.postMessage({action: "actionName", ...extra fields...})`
 **AHK → JS:** `guiVar.ExecuteScriptAsync("jsFunction(...)")`
+
+There is now a second integration path:
+
+- **JS → Bun:** `fetch()` / `EventSource` against `http://127.0.0.1:8765`
+- Prompt Chat prefers the Bun streaming path and falls back to AHK message dispatch if the backend is unavailable
 
 The AHK handler only extracts the `action` field via RegEx, then defers. If the JS message carries extra data (like `hotkeyChanged` with `id` and `key`), extract it from the raw JSON string in `HandleSettingsAction(action, rawJson)` — don't use `ExecuteScript` to re-read it.
 
@@ -142,9 +157,13 @@ Corregí el texto...
 
 The `prompts/` folder is hot-reloaded every 5 seconds. `SavePromptFiles()` persists prompt metadata back into the corresponding `.md` file.
 
-### UI files — no build step
+### UI files + backend tooling
 
-`ui/*.html` are self-contained single files (inline CSS + JS, no framework, no bundler). Edit them directly. There is no `npm`, no TypeScript, no build pipeline.
+- `ui/*.html` are still self-contained files edited directly
+- There is now a small TypeScript/Bun toolchain for the backend
+- Install tooling with `bun install`
+- Validate backend code with `node_modules/.bin/tsc --noEmit`
+- Quick backend check: `bun run backend:check`
 
 ### Adding a new system hotkey
 

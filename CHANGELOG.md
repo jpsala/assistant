@@ -5,11 +5,19 @@ All notable changes to AI Assistant are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Bun backend under `backend/src/index.ts` for typed provider I/O, model listing, prompt watching, and conversation persistence
+- Prompt Chat streaming via SSE when the Bun backend is available
+- Prompt Chat session persistence under `data/conversations/*.json`
+- Local backend validation tooling via `package.json`, `tsconfig.json`, `bun.lock`, TypeScript, and Bun type definitions
 - `@confirm` directive for hotkey prompts: shows a pre-run dialog letting you review and edit both the prompt text and the input text before the API call is made. Add `@confirm:true` in a prompt file or toggle the new checkbox in the Prompt Editor.
 - "Manual" built-in prompt (hotkey `Alt+T,T`) as an empty `@confirm` prompt for ad-hoc one-off requests without opening the main window.
 - Prompt Editor: "Confirm prompt before running by hotkey" checkbox; saved/loaded from prompt files and shown as a "Confirm" tag in the prompt list.
 
 ### Changed
+- `lib/api.ahk` now prefers the local Bun backend automatically and falls back to the legacy direct AHK provider path if the backend is unavailable
+- Prompt Chat hotkey now captures active selection into a fresh session
+- Prompt Chat send behavior now favors `Enter` to send and `Shift+Enter` for newline
+- Repository docs now describe the hybrid AHK + Bun architecture instead of an AHK-only app
 - `Como yo (español)` and `Like me (English)` prompts moved to `@file:`-free inline format with `@provider:openrouter` and hotkeys assigned.
 - Added hotkeys to `Traducir a inglés` (`Alt+T,E`), `Traducir a español` (`Alt+T,S`), and `Como yo` (`Alt+T,Y`) / `Like me` (`Alt+T,L`).
 - Prompt Editor "save" no longer rejects empty prompt text (allows `@confirm` prompts with no default body).
@@ -28,6 +36,7 @@ All notable changes to AI Assistant are documented in this file.
 - Settings window visual overhaul: card-style sections, CSS toggle switch, compact scrollbar, better typography and focus rings
 
 ### Fixed
+- Tray icon click flow now distinguishes single-click menu behavior from double-click Prompt Chat open behavior
 - Command input label now shows the actual configured hotkey instead of the hardcoded "(Alt+J)"; updates live when changed in Settings
 - Settings close handler now saves size on both JS-close and Alt+F4 paths
 - Settings size written atomically (single file write via SaveSettingBatch)

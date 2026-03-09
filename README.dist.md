@@ -1,6 +1,11 @@
 # AI Assistant
 
-System tray app for text processing via OpenRouter, OpenAI, Anthropic, or xAI.
+Windows system tray app for text processing via OpenRouter, OpenAI, Anthropic, or xAI.
+
+Current architecture:
+
+- AHK v2 handles hotkeys, tray, clipboard automation, and WebView2 windows
+- Optional Bun backend handles streaming, JSON-based provider I/O, prompt watching, and persisted Prompt Chat sessions
 
 ## Setup
 
@@ -9,21 +14,27 @@ System tray app for text processing via OpenRouter, OpenAI, Anthropic, or xAI.
 3. Add at least one provider API key (`OPENROUTER_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`)
 4. Save and restart the app
 
+Optional for development:
+
+5. Install Bun and run `bun install`
+6. Start the backend with `bun run backend:dev`
+
 ## Usage
 
-- **Alt+Shift+W** — Open the main window (prompt-based text processing)
+- **Alt+Shift+W** — Open Prompt Chat
 - **Alt+Shift+F** — Fix clipboard text (auto-detect language, fix grammar/spelling)
 - *(user-assigned)* — **Prompt picker**: spotlight-style list to silently run a command on selected text
 - Right-click the tray icon for Settings, Prompt Editor, and more
 
-### Main window
+### Prompt Chat
 
-1. Copy text to clipboard — it appears in the Clipboard panel
-2. Select a command from the dropdown, or write a custom prompt
-3. Click Send (or press Ctrl+Enter)
-4. Result appears below — click Copy to clipboard
+1. Press `Alt+Shift+W` with text selected to capture the selection into the session
+2. Write the next instruction in the composer
+3. Use `/prompt name` on the first line to expand a saved prompt into that turn
+4. Press `Enter` to send or `Shift+Enter` for a newline
+5. Copy the latest assistant reply or replace the original selection in-place
 
-The command dropdown shows the model override and hotkey for each command (if assigned).
+When the Bun backend is running, Prompt Chat streams tokens as they arrive and saves the session under `data/conversations/`.
 
 ### Prompt picker
 
@@ -37,7 +48,10 @@ Press `Escape` to close without running anything. Focus returns to the app you w
 
 ## Customizing commands
 
-Edit the `.md` files inside `prompts\` to add, remove, or modify commands. The app reloads the folder automatically every 5 seconds.
+Edit the `.md` files inside `prompts\` to add, remove, or modify commands.
+
+- Without Bun: the AHK app reloads the folder every 5 seconds
+- With Bun: prompt catalog updates can be pushed immediately
 
 ### Format
 
@@ -76,13 +90,15 @@ Your prompt here.
 | File | Description |
 |------|-------------|
 | `ai-assistant.exe` | Main application |
+| `backend\src\index.ts` | Optional Bun backend for streaming/persistence |
 | `.env` | API keys (created on first run) |
 | `.env.example` | Example env file with all supported providers |
 | `prompts\*.md` | Command definitions |
 | `model.conf` | Selected model (auto-created) |
 | `settings.conf` | Hotkeys and settings (auto-created) |
+| `data\conversations\*.json` | Prompt Chat history (auto-created when backend is used) |
 | `ui/` | HTML interface files |
-| `lib/` | WebView2 DLLs |
+| `lib/` | AHK libraries and WebView2 DLLs |
 
 ## Hotkeys
 
@@ -90,6 +106,6 @@ Default hotkeys can be changed in Settings (right-click tray icon > Settings).
 
 | Default | Action |
 |---------|--------|
-| Alt+Shift+W | Open main window |
+| Alt+Shift+W | Open Prompt Chat |
 | Alt+Shift+F | Fix clipboard |
 | *(none)* | Prompt picker (assign in Settings) |

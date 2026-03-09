@@ -1,14 +1,17 @@
 # AI Assistant
 
-AHK v2 system tray app for daily text processing. Lives in memory, called via global hotkeys, and can run through multiple providers (OpenRouter, OpenAI, Anthropic, xAI).
+Hybrid Windows desktop assistant for daily text processing.
+
+- **Shell/runtime:** AutoHotkey v2 system tray app with global hotkeys, clipboard automation, and WebView2 windows
+- **Backend:** optional Bun sidecar for provider I/O, streaming SSE, prompt watching, and conversation persistence
+- **Providers:** OpenRouter, OpenAI, Anthropic, xAI
 
 ## Setup
 
 - **Runs on:** Windows 11 (AHK v2, not WSL)
-- **Dev path:** `/home/jp/dev/ai-assistant/` → symlink to `/mnt/c/tools/ai-assistant/`
-- **Providers:** OpenRouter, OpenAI, Anthropic, xAI
 - **API keys:** `.env` (gitignored) and/or Settings window
 - **Template:** copy `.env.example` to `.env` and fill keys
+- **Optional dev tooling:** `bun install`
 
 ## Hotkeys
 
@@ -23,11 +26,14 @@ All hotkeys are configurable in Settings (right-click tray icon).
 
 ## Prompt Chat (Alt+Shift+W)
 
+- **Can capture selected text directly** when opened from the hotkey
 - **Original text** pinned at the top of the session
 - **Chat-style timeline**: initial prompt, first assistant reply, and all follow-up turns
 - **Composer**: supports `/prompt name` on the first line to inject a saved prompt into that turn
+- **Streaming replies**: when the Bun backend is running, assistant tokens appear as they arrive
+- **Persistence**: sessions are saved to `data/conversations/*.json` through the backend
 - **Actions**: copy latest assistant reply or replace selected text in the target app
-- **Shortcuts**: `Ctrl+Enter` to send, `Escape` to hide
+- **Shortcuts**: `Enter` to send, `Shift+Enter` for newline, `Ctrl+Enter` also sends, `Escape` hides
 
 ## Prompt picker
 
@@ -42,28 +48,36 @@ A spotlight-style floating window for running commands silently on selected text
 ## File structure
 
 ```
-ai-assistant.ahk          # Main: tray, hotkeys, WebView GUI, provider/key loading, prompt loading
+ai-assistant.ahk          # Main shell: tray, hotkeys, WebView GUI, prompt loading, Windows automation
+backend/
+  src/index.ts            # Bun backend: provider I/O, SSE streaming, prompt watching, persistence
 ui/
-  iterative.html          # Prompt Chat UI (chat-style iterative workspace)
+  iterative.html          # Prompt Chat UI (streams through Bun when available)
   picker.html             # Prompt picker popup (spotlight-style, pre-loaded at startup)
   shared.css              # Shared window styles
   window-ui.js            # Shared resize/footer/textarea behavior
   ahk-bridge.js           # Shared WebView bridge helpers
 lib/
-  api.ahk                 # Multi-provider API calls, models fetch, settings persistence
+  api.ahk                 # Multi-provider API calls, Bun backend bridge, settings persistence
   prompts.ahk             # Style definitions (STYLE_ES, STYLE_EN), task prompts, GetSystemPrompt()
   lang.ahk                # DetectLanguage() — Spanish chars + common word frequency
   WebViewToo.ahk          # WebView2 wrapper library (external)
   WebView2.ahk            # WebView2 COM bindings
 prompts/
-  *.md                     # Prompt definitions (auto-reloaded every 5s)
+  *.md                    # Prompt definitions
+data/
+  conversations/*.json    # Prompt Chat session persistence (created by Bun backend)
 .env.example               # Example env with all supported providers
 .env                       # Local API keys (gitignored)
+package.json               # Bun scripts + dev dependencies
 ```
 
 ## Prompts system
 
-Commands live in `prompts/*.md`. The app reloads the folder every 5 seconds, so you can add, edit, or delete prompts without restarting.
+Commands live in `prompts/*.md`.
+
+- **AHK fallback mode:** prompts reload every 5 seconds via polling
+- **Bun-backed mode:** prompt catalog updates can arrive instantly through `fs.watch()` + SSE
 
 Each prompt file uses a small header plus the prompt body:
 ```md
@@ -78,22 +92,35 @@ Translate this text to English. Keep the tone and meaning.
 
 ## Technical notes
 
-- **UTF-8:** HTTP responses use `ADODB.Stream` to decode `ResponseBody` as UTF-8 (not `ResponseText`, which assumes ANSI and garbles Spanish chars)
-- **JSON:** No external libraries — request built via string concatenation, response parsed with RegEx
+- **WebView layer:** still WebView2/Chromium via AHK, not Electron/Electrobun
+- **UTF-8:** AHK fallback still uses `ADODB.Stream`; Bun uses native UTF-8 strings
+- **JSON:** AHK fallback still uses string concatenation/RegEx; Bun backend uses normal JSON parsing/serialization
 - **GUI:** WebView2 (via WebViewToo library) — HTML/CSS/JS UI embedded in AHK window. Dark theme, `+AlwaysOnTop`, hides on close/escape
-- **AHK↔JS communication:** JS calls AHK via `window.chrome.webview.postMessage()`, AHK calls JS via `ExecuteScriptAsync()`
+- **AHK↔JS communication:** existing WebView bridge still exists for window controls, clipboard actions, and fallback request paths
+- **Backend transport:** local HTTP on `http://127.0.0.1:8765` with JSON + SSE
+- **Fallback behavior:** if Bun is not installed or the backend is unavailable, the app still works through the older direct AHK provider path
 
 ## Hybrid Bun backend
 
-This branch adds an optional Bun sidecar under `backend/` and the AHK app now prefers it automatically when `bun` is available on `PATH`.
+The Bun sidecar is optional, but the app now prefers it automatically when `bun` is available on `PATH`.
 
-What it improves today:
+What it does now:
 
-- **Provider I/O in TypeScript:** provider payloads and response parsing move out of AHK regex-heavy code
-- **Streaming Prompt Chat:** `ui/iterative.html` now streams assistant tokens from the Bun backend when it is reachable, keeping the UI responsive
-- **Prompt watching:** backend exposes prompt catalog and SSE prompt updates using filesystem watching
-- **Conversation persistence:** Prompt Chat sessions are saved to `data/conversations/*.json`
-- **Safe fallback:** if the backend is unavailable, the app falls back to the previous direct AHK provider path
+- **Provider I/O in TypeScript**
+- **Streaming Prompt Chat via SSE**
+- **Model listing**
+- **Prompt catalog API**
+- **Prompt watch SSE**
+- **Conversation persistence**
+- **Safe AHK fallback**
+
+## Development
+
+Install backend tooling:
+
+```bash
+bun install
+```
 
 Run the backend manually during development:
 
@@ -106,6 +133,28 @@ Quick backend self-check:
 ```bash
 bun run backend:check
 ```
+
+Typecheck the backend:
+
+```bash
+node_modules/.bin/tsc --noEmit
+```
+
+## What Is Better Now
+
+- **Prompt Chat no longer has to wait for a full response before updating the UI** when the backend is active
+- **Provider/model fetching is more robust** because the Bun backend uses real JSON handling instead of regex extraction
+- **Prompt Chat sessions can persist across launches** through `data/conversations`
+- **Prompt updates can be pushed immediately** from the Bun backend instead of waiting for the 5-second AHK polling loop
+- **The app is easier to extend** because the risky parts are now split: AHK handles Windows automation, Bun handles network/state work
+
+## What Is Different Now
+
+- The project is no longer AHK-only
+- The app still uses WebView2 for desktop UI
+- A local Bun backend can start automatically when AHK needs it
+- `lib/api.ahk` is now both a provider client and a backend bridge
+- The repo has a small TypeScript toolchain (`package.json`, `tsconfig.json`, `bun.lock`)
 
 ## Command metadata prefixes
 
