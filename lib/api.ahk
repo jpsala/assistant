@@ -14,6 +14,7 @@ DEFAULT_MODELS := Map(
 VALID_PROVIDERS := ["openrouter", "openai", "anthropic", "xai"]
 global BACKEND_READY := false
 global BACKEND_BOOT_ATTEMPTED := false
+global BUN_EXECUTABLE := ""
 
 API_PROVIDER := LoadSelectedProvider()
 API_MODEL := LoadSelectedModel(API_PROVIDER)
@@ -187,6 +188,45 @@ BackendHealthCheck() {
     }
 }
 
+FindBunExecutable() {
+    global BUN_EXECUTABLE
+
+    if (BUN_EXECUTABLE != "")
+        return BUN_EXECUTABLE
+
+    candidates := [
+        EnvGet("BUN_EXE"),
+        A_LocalAppData . "\Programs\Bun\bun.exe",
+        A_UserProfile . "\.bun\bin\bun.exe"
+    ]
+
+    for _, candidate in candidates {
+        candidate := Trim(candidate)
+        if (candidate != "" && FileExist(candidate)) {
+            BUN_EXECUTABLE := candidate
+            return BUN_EXECUTABLE
+        }
+    }
+
+    tempFile := A_Temp . "\ai-assistant-bun-path.txt"
+    try FileDelete(tempFile)
+    try {
+        RunWait(A_ComSpec . ' /C where bun > "' . tempFile . '" 2>nul',, "Hide")
+        if FileExist(tempFile) {
+            path := Trim(FileRead(tempFile, "UTF-8"))
+            if InStr(path, "`n")
+                path := Trim(StrSplit(path, "`n")[1], "`r`n`t ")
+            if (path != "" && FileExist(path)) {
+                BUN_EXECUTABLE := path
+                return BUN_EXECUTABLE
+            }
+        }
+    }
+    try FileDelete(tempFile)
+
+    return ""
+}
+
 EnsureBackendServer() {
     global BACKEND_READY, BACKEND_BOOT_ATTEMPTED
 
@@ -206,7 +246,11 @@ EnsureBackendServer() {
     if !FileExist(backendEntry)
         return false
 
-    try Run('bun "' . backendEntry . '"', A_ScriptDir, "Hide")
+    bunExe := FindBunExecutable()
+    if (bunExe = "")
+        return false
+
+    try Run('"' . bunExe . '" "' . backendEntry . '"', A_ScriptDir, "Hide")
     catch
         return false
 

@@ -256,8 +256,24 @@ RegisterHotkeys()
 global settingsGui := ""
 global settingsReady := false
 
+EnsureBackendForView(viewName) {
+    if EnsureBackendServer()
+        return true
+
+    MsgBox(
+        viewName . " needs the local Bun backend, but it could not be started.`n`n"
+        . "Install Bun or make sure bun.exe is available to the app process.",
+        "AI Assistant",
+        "Icon!"
+    )
+    return false
+}
+
 ShowSettings() {
     global settingsGui, settingsReady
+
+    if !EnsureBackendForView("Settings")
+        return
 
     if IsObject(settingsGui) {
         GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
@@ -462,6 +478,9 @@ InitPickerWindow() {
 ShowPickerWindow(mode := "silent") {
     global pickerGui, pickerReady, pickerPrevWin, pickerMode
 
+    if !EnsureBackendForView("Prompt Picker")
+        return
+
     if !IsObject(pickerGui)
         InitPickerWindow()
 
@@ -653,6 +672,9 @@ InitIterativeWindow() {
 
 ShowIterativeWindow() {
     global iterativeGui, iterativeReady, iterativePendingSession
+
+    if !EnsureBackendForView("Prompt Chat")
+        return
 
     if !IsObject(iterativeGui)
         InitIterativeWindow()
@@ -864,6 +886,9 @@ global editorReady := false
 
 ShowPromptEditor() {
     global editorGui, editorReady
+
+    if !EnsureBackendForView("Prompt Editor")
+        return
 
     if IsObject(editorGui) {
         GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
