@@ -148,6 +148,15 @@ async function ensureServer(): Promise<number> {
         return Response.json(updated);
       }
 
+      if (req.method === "POST" && path === "/close") {
+        log.info("close.requested");
+        if (settingsWindow) {
+          try { settingsWindow.close(); } catch {}
+          settingsWindow = null;
+        }
+        return new Response("ok");
+      }
+
       if (req.method === "POST" && path === "/log") {
         const body = await req.json() as {
           level?: "debug" | "info" | "warn" | "error";

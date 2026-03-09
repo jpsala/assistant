@@ -226,4 +226,12 @@ saveButton.addEventListener("click", () => {
   void save();
 });
 
+// ─── Titlebar close ─────────────────────────────────────────────────────────
+
+document.getElementById("titlebar-close")?.addEventListener("click", () => {
+  if (!PORT) return;
+  sendLog("info", "close_requested");
+  fetch(`http://localhost:${PORT}/close`, { method: "POST" }).catch(() => {});
+});
+
 void loadState();

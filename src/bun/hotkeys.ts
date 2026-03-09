@@ -52,14 +52,31 @@ export function ahkToAccelerator(spec: string): string {
   return parts.join("+");
 }
 
-/** Chord spec:  "Alt+Shift+Q -> Alt+R"  or AHK  "!+q->!r" */
+/**
+ * Chord spec:  "Alt+Shift+Q -> Alt+R"  or AHK  "!+q->!r"
+ * Also supports AHK comma format:  "^!t,c"  (prefix ^!t, suffix c)
+ */
 function parseChord(
   spec: string
 ): { prefix: string; suffix: string } | null {
-  const sep = spec.includes("->") ? "->" : null;
-  if (!sep) return null;
-  const [pre, suf] = spec.split("->").map((s) => ahkToAccelerator(s.trim()));
-  return { prefix: pre, suffix: suf };
+  // Arrow separator: "!+q -> !r" or "Alt+Q -> R"
+  if (spec.includes("->")) {
+    const [pre, suf] = spec.split("->").map((s) => ahkToAccelerator(s.trim()));
+    return { prefix: pre, suffix: suf };
+  }
+
+  // AHK comma separator: "^!t,c" — split on the LAST comma
+  // (only if the part after the comma looks like a key, not a modifier-only string)
+  const commaIdx = spec.lastIndexOf(",");
+  if (commaIdx > 0 && commaIdx < spec.length - 1) {
+    const pre = spec.slice(0, commaIdx).trim();
+    const suf = spec.slice(commaIdx + 1).trim();
+    if (pre.length > 0 && suf.length > 0) {
+      return { prefix: ahkToAccelerator(pre), suffix: ahkToAccelerator(suf) };
+    }
+  }
+
+  return null;
 }
 
 // ─── State ────────────────────────────────────────────────────────────────────

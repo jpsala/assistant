@@ -6,6 +6,7 @@ import { silentReplace, setToastCallback, type ReplaceResult } from "./replace";
 import { handleReplaceStatus } from "./feedback";
 import { showPicker, updatePickerPrompts, initPickerServer } from "./picker";
 import { initSettingsWindow, showSettingsWindow } from "./settings-window";
+import { initEditorWindow, showEditorWindow } from "./editor-window";
 import { createLogger, getLogFilePath, resetLogFile } from "./logger";
 
 const log = createLogger("startup");
@@ -36,6 +37,7 @@ const tray = new Tray({ title: "Assistant" });
 tray.setMenu([
   { type: "normal", label: "Open Chat", action: "open" },
   { type: "normal", label: "Prompt Picker", action: "picker" },
+  { type: "normal", label: "Prompt Editor", action: "editor" },
   { type: "divider" },
   { type: "normal", label: "Settings", action: "settings" },
   { type: "divider" },
@@ -55,6 +57,10 @@ tray.on("tray-clicked", (event: any) => {
     case "picker":
       log.info("tray.open_picker");
       showPicker().catch((error) => log.error("tray.open_picker_failed", { error }));
+      break;
+    case "editor":
+      log.info("tray.open_editor");
+      showEditorWindow().catch((error) => log.error("tray.open_editor_failed", { error }));
       break;
     case "quit":
       log.info("tray.quit");
@@ -160,6 +166,7 @@ await initSettingsWindow(async (nextSettings) => {
     model: nextSettings.model,
   });
 });
+await initEditorWindow();
 
 // Keep the Bun event loop alive indefinitely.
 // Without this, Bun may drain the event loop and exit even with active servers.

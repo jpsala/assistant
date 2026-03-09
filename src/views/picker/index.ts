@@ -220,6 +220,10 @@ search.addEventListener("input", () => {
   render();
 });
 
+// ─── Titlebar close ─────────────────────────────────────────────────────────
+
+document.getElementById("titlebar-close")?.addEventListener("click", () => close());
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 render();

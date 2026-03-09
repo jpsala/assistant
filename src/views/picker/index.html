@@ -21,9 +21,49 @@
         font-size: 14px;
       }
 
+      /* ── Custom titlebar ── */
+      .titlebar {
+        display: flex;
+        align-items: center;
+        height: 34px;
+        padding: 0 4px 0 14px;
+        -webkit-app-region: drag;
+        user-select: none;
+        flex-shrink: 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .titlebar-title {
+        flex: 1;
+        font-size: 12px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.45);
+        letter-spacing: 0.03em;
+      }
+
+      .titlebar-close {
+        -webkit-app-region: no-drag;
+        width: 34px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border: none;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 14px;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: background 0.12s, color 0.12s;
+      }
+
+      .titlebar-close:hover {
+        background: rgba(255, 70, 70, 0.8);
+        color: #fff;
+      }
+
       /* ── Search bar ── */
       #search-wrapper {
-        padding: 14px 16px;
+        padding: 10px 16px;
         border-bottom: 1px solid rgba(255, 255, 255, 0.07);
         position: relative;
       }
@@ -63,7 +103,7 @@
       /* ── List ── */
       #list {
         overflow-y: auto;
-        max-height: calc(100vh - 65px);
+        max-height: calc(100vh - 99px);
         padding: 6px 0;
       }
 
@@ -233,6 +273,10 @@
     </style>
   </head>
   <body>
+    <div class="titlebar">
+      <span class="titlebar-title">Prompt Picker</span>
+      <button class="titlebar-close" id="titlebar-close" title="Close">&#x2715;</button>
+    </div>
     <div id="search-wrapper">
       <input
         id="search"

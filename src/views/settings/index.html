@@ -5,51 +5,89 @@
     <title>Settings</title>
     <style>
       :root {
-        --bg-1: #f6efe4;
-        --bg-2: #f3f5ef;
-        --ink: #1b1d1a;
-        --muted: #61665d;
-        --panel: rgba(255, 252, 245, 0.78);
-        --line: rgba(27, 29, 26, 0.09);
-        --accent: #0f766e;
-        --accent-soft: rgba(15, 118, 110, 0.12);
-        --danger: #c2410c;
+        --bg-1: #111322;
+        --bg-2: #17192b;
+        --ink: #e0e0f0;
+        --muted: #8b8fa6;
+        --panel: rgba(255, 255, 255, 0.04);
+        --line: rgba(255, 255, 255, 0.08);
+        --accent: #8b5cf6;
+        --accent-soft: rgba(139, 92, 246, 0.15);
+        --danger: #ef4444;
       }
 
       * {
         box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
 
       html, body {
-        margin: 0;
-        min-height: 100%;
+        height: 100%;
         color: var(--ink);
-        font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+        font-size: 14px;
         background:
-          radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 30%),
-          radial-gradient(circle at bottom right, rgba(194, 65, 12, 0.08), transparent 24%),
-          linear-gradient(180deg, var(--bg-1), var(--bg-2));
+          radial-gradient(circle at top left, rgba(139, 92, 246, 0.14), transparent 30%),
+          linear-gradient(180deg, var(--bg-2), var(--bg-1));
       }
 
-      body {
-        padding: 24px;
+      /* ── Custom titlebar ── */
+      .titlebar {
+        display: flex;
+        align-items: center;
+        height: 34px;
+        padding: 0 4px 0 14px;
+        -webkit-app-region: drag;
+        user-select: none;
+        flex-shrink: 0;
+        border-bottom: 1px solid var(--line);
       }
 
+      .titlebar-title {
+        flex: 1;
+        font-size: 12px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.45);
+        letter-spacing: 0.03em;
+      }
+
+      .titlebar-close {
+        -webkit-app-region: no-drag;
+        width: 34px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border: none;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.4);
+        font-size: 14px;
+        cursor: pointer;
+        border-radius: 6px;
+        transition: background 0.12s, color 0.12s;
+      }
+
+      .titlebar-close:hover {
+        background: rgba(255, 70, 70, 0.8);
+        color: #fff;
+      }
+
+      /* ── Layout ── */
       .shell {
         max-width: 980px;
         margin: 0 auto;
+        padding: 20px 24px 24px;
         display: grid;
         gap: 18px;
       }
 
       .hero {
         display: grid;
-        gap: 8px;
+        gap: 6px;
       }
 
       .eyebrow {
-        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
-        font-size: 12px;
+        font-size: 11px;
         letter-spacing: 0.16em;
         text-transform: uppercase;
         color: var(--accent);
@@ -57,16 +95,16 @@
       }
 
       h1 {
-        margin: 0;
-        font-size: clamp(36px, 5vw, 52px);
-        line-height: 0.95;
+        font-size: clamp(28px, 4vw, 40px);
+        line-height: 1;
         font-weight: 700;
+        color: #f5f7ff;
       }
 
       .sub {
         max-width: 720px;
         color: var(--muted);
-        font-size: 16px;
+        font-size: 14px;
         line-height: 1.5;
       }
 
@@ -76,40 +114,42 @@
         gap: 18px;
       }
 
+      /* ── Cards ── */
       .card {
         padding: 18px;
         border: 1px solid var(--line);
-        border-radius: 24px;
+        border-radius: 16px;
         background: var(--panel);
-        backdrop-filter: blur(18px);
-        box-shadow: 0 18px 42px rgba(79, 70, 45, 0.08);
+        backdrop-filter: blur(12px);
       }
 
       .card h2 {
         margin: 0 0 4px;
-        font-size: 22px;
+        font-size: 18px;
+        font-weight: 700;
+        color: #f5f7ff;
       }
 
       .card p {
-        margin: 0 0 18px;
+        margin: 0 0 16px;
         color: var(--muted);
+        font-size: 13px;
         line-height: 1.45;
-        font-size: 14px;
       }
 
+      /* ── Fields ── */
       .field {
         display: grid;
-        gap: 8px;
+        gap: 6px;
         margin-bottom: 14px;
       }
 
       .field label {
-        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: #33403a;
+        color: var(--muted);
       }
 
       input, select, button {
@@ -118,18 +158,31 @@
 
       input, select {
         width: 100%;
-        padding: 12px 14px;
-        border-radius: 16px;
-        border: 1px solid rgba(27, 29, 26, 0.12);
-        background: rgba(255, 255, 255, 0.72);
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.06);
         color: var(--ink);
         outline: none;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+
+      select {
+        cursor: pointer;
+      }
+
+      select option {
+        background: #1e2035;
+        color: var(--ink);
       }
 
       input:focus, select:focus {
-        border-color: rgba(15, 118, 110, 0.55);
-        box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.1);
+        border-color: rgba(139, 92, 246, 0.55);
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.12);
+      }
+
+      input::placeholder {
+        color: rgba(255, 255, 255, 0.2);
       }
 
       .inline {
@@ -141,14 +194,25 @@
 
       .key-grid {
         display: grid;
+        grid-template-columns: 1fr 1fr;
         gap: 10px;
       }
 
       .hint {
-        font-size: 13px;
+        font-size: 12px;
         color: var(--muted);
       }
 
+      code {
+        font-family: "Consolas", "Fira Mono", monospace;
+        font-size: 12px;
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(255, 255, 255, 0.7);
+      }
+
+      /* ── Actions ── */
       .actions {
         display: flex;
         align-items: center;
@@ -158,57 +222,82 @@
       }
 
       .status {
-        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
         font-size: 13px;
         color: var(--muted);
       }
 
-      .status[data-kind="ok"] { color: var(--accent); }
+      .status[data-kind="ok"] { color: #3ddc97; }
       .status[data-kind="error"] { color: var(--danger); }
-      .status[data-kind="loading"] { color: #7c5c1b; }
+      .status[data-kind="loading"] { color: #f59e0b; }
 
+      /* ── Buttons ── */
       .button {
         border: 0;
-        border-radius: 999px;
-        padding: 12px 18px;
-        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+        border-radius: 10px;
+        padding: 10px 18px;
         font-weight: 700;
+        font-size: 13px;
         cursor: pointer;
         background: var(--accent);
         color: white;
-        box-shadow: 0 10px 24px rgba(15, 118, 110, 0.22);
+        transition: opacity 0.12s;
+      }
+
+      .button:hover {
+        opacity: 0.88;
       }
 
       .button.secondary {
-        background: rgba(255, 255, 255, 0.74);
+        background: rgba(255, 255, 255, 0.08);
         color: var(--ink);
-        box-shadow: none;
-        border: 1px solid rgba(27, 29, 26, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .button.secondary:hover {
+        background: rgba(255, 255, 255, 0.12);
       }
 
       .button:disabled {
-        opacity: 0.6;
+        opacity: 0.4;
         cursor: default;
       }
 
-      @media (max-width: 860px) {
-        body {
-          padding: 16px;
-        }
+      /* ── Scrollbar ── */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
 
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 3px;
+      }
+
+      @media (max-width: 860px) {
         .grid {
+          grid-template-columns: 1fr;
+        }
+        .key-grid {
           grid-template-columns: 1fr;
         }
       }
     </style>
   </head>
   <body>
+    <div class="titlebar">
+      <span class="titlebar-title">Settings</span>
+      <button class="titlebar-close" id="titlebar-close" title="Close">&#x2715;</button>
+    </div>
+
     <div class="shell">
       <div class="hero">
-        <div class="eyebrow">Assistant Control Room</div>
-        <h1>Settings that matter.</h1>
+        <div class="eyebrow">Assistant</div>
+        <h1>Settings</h1>
         <div class="sub">
-          Change your default provider, choose a model, rotate API keys, and tune the
+          Change your default provider, choose a model, rotate API keys, and tune
           hotkeys without restarting the app.
         </div>
       </div>
@@ -216,7 +305,7 @@
       <div class="grid">
         <section class="card">
           <h2>Model Defaults</h2>
-          <p>These values are used whenever a prompt does not override provider or model.</p>
+          <p>Used whenever a prompt does not override provider or model.</p>
 
           <div class="field">
             <label for="provider">Provider</label>

@@ -23,11 +23,15 @@ export default {
       settings: {
         entrypoint: "src/views/settings/index.ts",
       },
+      editor: {
+        entrypoint: "src/views/editor/index.ts",
+      },
     },
     copy: {
       "src/views/mainview/index.html": "views/mainview/index.html",
       "src/views/picker/index.html": "views/picker/index.html",
       "src/views/settings/index.html": "views/settings/index.html",
+      "src/views/editor/index.html": "views/editor/index.html",
       // Starter prompts shipped with the app (seeded to %APPDATA% on first run)
       "prompts/fix-writing.md": "starter-prompts/fix-writing.md",
       "prompts/translate-english.md": "starter-prompts/translate-english.md",
