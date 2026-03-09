@@ -153,7 +153,9 @@ bun run backend:smoke
 - **Provider/model fetching is more robust** because the Bun backend uses real JSON handling instead of regex extraction
 - **Settings state is more centralized** because provider selection, model selection, and API key persistence now flow through the backend
 - **Settings UI is less coupled to AHK** because provider/model/API key flows now call Bun directly from the WebView
+- **Hotkey settings are more centralized** because the Settings UI now persists them through backend endpoints before AHK reloads registrations
 - **Prompt Editor is less coupled to AHK** because prompt CRUD and model loading now call Bun directly from the WebView
+- **Prompt Editor updates are more live** because it now listens to prompt watch events from Bun
 - **Prompt Chat sessions can persist across launches** through `data/conversations`
 - **Saved Prompt Chat sessions are now actually navigable from the UI** through the history panel
 - **Prompt updates can be pushed immediately** from the Bun backend instead of waiting for the 5-second AHK polling loop
@@ -166,6 +168,7 @@ bun run backend:smoke
 - A local Bun backend can start automatically when AHK needs it
 - `lib/api.ahk` is now both a provider client and a backend bridge
 - Settings provider/model/API key changes now persist through backend endpoints
+- Settings hotkey changes now persist through backend endpoints and then trigger AHK reload
 - `ui/settings.html` now talks directly to backend endpoints for provider/model/API key state
 - `ui/prompt-editor.html` now talks directly to backend endpoints for prompt CRUD and model loading
 - The repo has a small TypeScript toolchain (`package.json`, `tsconfig.json`, `bun.lock`)

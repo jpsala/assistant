@@ -346,7 +346,6 @@ HandleSettingsAction(action, rawJson) {
     case "ready":
         settingsReady := true
         try SyncRuntimeStateFromBackend()
-        SendHotkeysToSettings()
         SendAutostartToSettings()
         ScheduleWindowFocus("settings", settingsGui, "document.getElementById('provider-select').focus()", 800)
 
@@ -398,18 +397,12 @@ HandleSettingsAction(action, rawJson) {
         if IsObject(editorGui) && editorReady
             SendModelsToEditor()
 
-    case "hotkeyChanged":
-        ; Parse id and key directly from the JSON message (no ExecuteScript needed)
-        actionId := ExtractJsonString(rawJson, "id")
-        ahkKey := ExtractJsonString(rawJson, "key")
-        ; key:"" (clear) is valid — regex still matches empty capture
-        if (actionId != "") {
-            try {
-                RegisterSingleHotkey(actionId, ahkKey)
-                settingsGui.ExecuteScriptAsync('setStatus("Hotkey saved")')
-            } catch as e {
-                settingsGui.ExecuteScriptAsync('setStatus("Error: ' . EscJson(e.Message) . '")')
-            }
+    case "reloadHotkeys":
+        try {
+            RegisterHotkeys()
+            settingsGui.ExecuteScriptAsync('setStatus("Hotkeys reloaded")')
+        } catch as e {
+            settingsGui.ExecuteScriptAsync('setStatus("Error: ' . EscJson(e.Message) . '")')
         }
 
     case "setAutostart":

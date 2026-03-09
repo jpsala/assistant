@@ -591,6 +591,11 @@
     });
   }
 
+  async function loadHotkeysSnapshot() {
+    const data = await fetchJson('/v1/hotkeys');
+    setHotkeys(data.hotkeys || []);
+  }
+
   async function refreshModelsFromBackend() {
     const data = await fetchJson('/v1/models?provider=' + encodeURIComponent(currentProvider));
     setModels(data.models || []);
@@ -707,7 +712,9 @@
 
         const entry = hotkeyData.find(h => h.id === item.id);
         if (entry) entry.ahkKey = ahk;
-        sendToAHK('hotkeyChanged', { id: item.id, key: ahk });
+        saveHotkey(item.id, ahk).catch((error) => {
+          setStatus('Error saving hotkey: ' + error.message);
+        });
       });
 
       const clearBtn = document.createElement('button');
@@ -718,7 +725,9 @@
         input.value = '';
         const entry = hotkeyData.find(h => h.id === item.id);
         if (entry) entry.ahkKey = '';
-        sendToAHK('hotkeyChanged', { id: item.id, key: '' });
+        saveHotkey(item.id, '').catch((error) => {
+          setStatus('Error saving hotkey: ' + error.message);
+        });
       });
 
       row.appendChild(label);
@@ -890,6 +899,17 @@
     setStatus('Model saved for ' + providerLabel(currentProvider) + ': ' + currentModelId);
   }
 
+  async function saveHotkey(actionId, ahkKey) {
+    const data = await fetchJson('/v1/hotkeys/' + encodeURIComponent(actionId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ahkKey })
+    });
+    setHotkeys(data.hotkeys || []);
+    sendToAHK('reloadHotkeys');
+    setStatus('Hotkey saved');
+  }
+
   Object.values(keyInputs).forEach(input => input.addEventListener('blur', () => {
     saveApiKeys()
       .then(() => setStatus('API keys saved'))
@@ -925,6 +945,7 @@
     initWindowUI();
     updateProviderNote();
     loadSettingsSnapshot()
+      .then(() => loadHotkeysSnapshot())
       .then(() => refreshModelsFromBackend())
       .then(() => setStatus('Loaded settings'))
       .catch((error) => setStatus('Error loading settings: ' + error.message));

@@ -49,6 +49,18 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   anthropic: "claude-3-5-sonnet-latest",
   xai: "grok-3-mini",
 };
+const HOTKEY_DEFAULTS: Record<string, string> = {
+  promptChat: "!+w",
+  promptPicker: "",
+  iterativePromptPicker: "",
+  reload: "",
+};
+const HOTKEY_LABELS: Record<string, string> = {
+  promptChat: "Prompt Chat",
+  promptPicker: "Prompt Picker",
+  iterativePromptPicker: "Prompt Chat Picker",
+  reload: "Reload",
+};
 
 const promptWatchClients = new Set<ReadableStreamDefaultController<string>>();
 
@@ -240,6 +252,23 @@ async function saveApiKeys(payload: {
     api_key_xai: String(payload.xaiKey || "").trim(),
   });
   return settingsSnapshot();
+}
+
+async function hotkeysSnapshot() {
+  const settings = await readKeyValueFile(SETTINGS_FILE);
+  return Object.entries(HOTKEY_DEFAULTS).map(([id, defaultKey]) => ({
+    id,
+    label: HOTKEY_LABELS[id] || id,
+    ahkKey: settings[`hotkey_${id}`] ?? defaultKey,
+  }));
+}
+
+async function saveHotkey(actionId: string, ahkKey: string) {
+  if (!Object.prototype.hasOwnProperty.call(HOTKEY_DEFAULTS, actionId)) {
+    throw new Error(`Unknown hotkey action: ${actionId}`);
+  }
+  await saveSettingsPatch({ [`hotkey_${actionId}`]: String(ahkKey || "") });
+  return hotkeysSnapshot();
 }
 
 function modelForProvider(settings: Record<string, string>, env: Record<string, string>, provider: Provider): string {
@@ -839,6 +868,20 @@ async function handleRequest(request: Request): Promise<Response> {
 
   if (url.pathname === "/v1/settings" && request.method === "GET") {
     return json(await settingsSnapshot());
+  }
+
+  if (url.pathname === "/v1/hotkeys" && request.method === "GET") {
+    return json({ hotkeys: await hotkeysSnapshot() });
+  }
+
+  if (url.pathname.startsWith("/v1/hotkeys/") && request.method === "PUT") {
+    const actionId = decodeURIComponent(url.pathname.slice("/v1/hotkeys/".length));
+    try {
+      const body = await requestBody<{ ahkKey?: string }>(request);
+      return json({ hotkeys: await saveHotkey(actionId, String(body.ahkKey || "")) });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
   }
 
   if (url.pathname === "/v1/settings/provider" && request.method === "PUT") {

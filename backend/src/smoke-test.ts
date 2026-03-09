@@ -97,6 +97,12 @@ try {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ provider: "openai", model: "gpt-4.1-mini" }),
   });
+  const hotkeysBefore = await requestJson("/v1/hotkeys");
+  const hotkeysSaved = await requestJson(`/v1/hotkeys/${encodeURIComponent("promptChat")}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ahkKey: "^!p" }),
+  });
 
   const promptsBefore = await requestJson("/v1/prompts");
   const promptSaved = await requestJson("/v1/prompts", {
@@ -141,6 +147,8 @@ try {
       settingsBeforeProvider: settingsBefore.provider,
       settingsAfterProvider: providerSaved.provider,
       settingsAfterModel: modelSaved.currentModel,
+      hotkeysBeforeCount: hotkeysBefore.hotkeys.length,
+      hotkeyPromptChat: hotkeysSaved.hotkeys.find((item: any) => item.id === "promptChat")?.ahkKey,
       promptsBeforeCount: promptsBefore.prompts.length,
       promptSavedName: promptSaved.prompt?.name,
       promptDeleteResult: promptDeleted.deleted,

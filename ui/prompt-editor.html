@@ -356,6 +356,7 @@
   let filteredModels = [];
   let modelActiveIdx = -1;
   const backendBaseUrl = 'http://127.0.0.1:8765';
+  let promptWatch = null;
 
   // =============================================
   // DOM REFS
@@ -446,6 +447,25 @@
   async function loadModelsForProvider(provider) {
     const payload = await fetchJson('/v1/models?provider=' + encodeURIComponent(provider || defaultProvider));
     setModels(payload.models || []);
+  }
+
+  function connectPromptWatch() {
+    try {
+      promptWatch = new EventSource(backendBaseUrl + '/v1/prompts/watch');
+      promptWatch.addEventListener('prompts', (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (Array.isArray(payload.prompts)) {
+            setPrompts(payload.prompts);
+          }
+        } catch (e) {}
+      });
+      promptWatch.onerror = () => {
+        try { promptWatch.close(); } catch (e) {}
+        promptWatch = null;
+        setTimeout(connectPromptWatch, 3000);
+      };
+    } catch (e) {}
   }
 
   // =============================================
@@ -882,6 +902,7 @@
   // =============================================
   document.addEventListener('DOMContentLoaded', () => {
     initWindowUI();
+    connectPromptWatch();
     loadSettingsSnapshot()
       .then(() => loadPromptCatalog())
       .then(() => loadModelsForProvider(defaultProvider))
