@@ -20,6 +20,12 @@ export default {
     },
     copy: {
       "src/views/mainview/index.html": "views/mainview/index.html",
+      // Starter prompts shipped with the app (seeded to %APPDATA% on first run)
+      "prompts/fix-writing.md": "starter-prompts/fix-writing.md",
+      "prompts/translate-english.md": "starter-prompts/translate-english.md",
+      "prompts/summarize.md": "starter-prompts/summarize.md",
+      "prompts/explain-code.md": "starter-prompts/explain-code.md",
+      "prompts/improve-email.md": "starter-prompts/improve-email.md",
     },
     win: {
       bundleCEF: false,
