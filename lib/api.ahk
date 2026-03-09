@@ -194,10 +194,12 @@ FindBunExecutable() {
     if (BUN_EXECUTABLE != "")
         return BUN_EXECUTABLE
 
+    localAppData := EnvGet("LocalAppData")
+    userProfile := EnvGet("UserProfile")
     candidates := [
         EnvGet("BUN_EXE"),
-        A_LocalAppData . "\Programs\Bun\bun.exe",
-        A_UserProfile . "\.bun\bin\bun.exe"
+        localAppData != "" ? localAppData . "\Programs\Bun\bun.exe" : "",
+        userProfile != "" ? userProfile . "\.bun\bin\bun.exe" : ""
     ]
 
     for _, candidate in candidates {
