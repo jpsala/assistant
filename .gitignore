@@ -1,5 +1,8 @@
 node_modules/
 dist/
+build/
+.tmp-bun-check/
+.tmp-picker-check/
 .env
 settings.conf
 *.conf

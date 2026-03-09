@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { Tray } from "electrobun/bun";
 import { registerHotkey, unregisterHotkey, unregisterAll, updateHotkey } from "./hotkeys";
 import { initPrompts, type PromptMap } from "./prompts";
@@ -32,7 +33,8 @@ log.info("settings.loaded", {
 
 // ─── Tray ─────────────────────────────────────────────────────────────────────
 
-const tray = new Tray({ title: "Assistant" });
+const trayIcon = resolve(import.meta.dir, "../assets/tray-icon.ico");
+const tray = new Tray({ title: "Assistant", image: trayIcon, width: 32, height: 32 });
 
 tray.setMenu([
   { type: "normal", label: "Open Chat", action: "open" },
