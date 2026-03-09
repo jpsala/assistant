@@ -145,6 +145,7 @@ node_modules/.bin/tsc --noEmit
 
 - **Prompt Chat no longer has to wait for a full response before updating the UI** when the backend is active
 - **Provider/model fetching is more robust** because the Bun backend uses real JSON handling instead of regex extraction
+- **Settings state is more centralized** because provider selection, model selection, and API key persistence now flow through the backend
 - **Prompt Chat sessions can persist across launches** through `data/conversations`
 - **Saved Prompt Chat sessions are now actually navigable from the UI** through the history panel
 - **Prompt updates can be pushed immediately** from the Bun backend instead of waiting for the 5-second AHK polling loop
@@ -156,6 +157,7 @@ node_modules/.bin/tsc --noEmit
 - The app still uses WebView2 for desktop UI
 - A local Bun backend can start automatically when AHK needs it
 - `lib/api.ahk` is now both a provider client and a backend bridge
+- Settings provider/model/API key changes now persist through backend endpoints
 - The repo has a small TypeScript toolchain (`package.json`, `tsconfig.json`, `bun.lock`)
 
 ## Command metadata prefixes

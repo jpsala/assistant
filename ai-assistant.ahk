@@ -345,6 +345,7 @@ HandleSettingsAction(action, rawJson) {
     switch action {
     case "ready":
         settingsReady := true
+        try SyncRuntimeStateFromBackend()
         ; Send current settings
         settingsGui.ExecuteScriptAsync('setCurrentProvider("' . EscJson(API_PROVIDER) . '")')
         settingsGui.ExecuteScriptAsync('setCurrentModel("' . EscJson(API_MODEL) . '")')
@@ -358,17 +359,24 @@ HandleSettingsAction(action, rawJson) {
     case "modelSelected":
         selectedId := settingsGui.ExecuteScript("currentModelId")
         if (Trim(selectedId) != "") {
-            SaveSelectedModel(selectedId, API_PROVIDER)
+            if EnsureBackendServer()
+                BackendSaveSelectedModel(selectedId, API_PROVIDER)
+            else
+                SaveSelectedModel(selectedId, API_PROVIDER)
             settingsGui.ExecuteScriptAsync('setStatus("Model saved for ' . EscJson(ProviderDisplayName(API_PROVIDER)) . ': ' . EscJson(selectedId) . '")')
         }
 
     case "providerSelected":
         selectedProvider := ExtractJsonString(rawJson, "provider")
         if (selectedProvider != "") {
-            SaveSelectedProvider(selectedProvider)
+            if EnsureBackendServer()
+                BackendSaveSelectedProvider(selectedProvider)
+            else
+                SaveSelectedProvider(selectedProvider)
             EnsureActiveProviderHasKey()
             settingsGui.ExecuteScriptAsync('setCurrentProvider("' . EscJson(API_PROVIDER) . '")')
             settingsGui.ExecuteScriptAsync('setCurrentModel("' . EscJson(API_MODEL) . '")')
+            SendApiKeysToSettings()
             FetchAndSendModels()
             settingsGui.ExecuteScriptAsync('setStatus("Provider saved: ' . EscJson(ProviderDisplayName(API_PROVIDER)) . '")')
             if IsObject(editorGui) && editorReady
@@ -381,14 +389,19 @@ HandleSettingsAction(action, rawJson) {
         API_KEYS["anthropic"] := Trim(ExtractJsonString(rawJson, "anthropicKey"))
         API_KEYS["xai"] := Trim(ExtractJsonString(rawJson, "xaiKey"))
 
-        SaveApiKey("openrouter", API_KEYS["openrouter"])
-        SaveApiKey("openai", API_KEYS["openai"])
-        SaveApiKey("anthropic", API_KEYS["anthropic"])
-        SaveApiKey("xai", API_KEYS["xai"])
+        if EnsureBackendServer()
+            BackendSaveApiKeys(API_KEYS)
+        else {
+            SaveApiKey("openrouter", API_KEYS["openrouter"])
+            SaveApiKey("openai", API_KEYS["openai"])
+            SaveApiKey("anthropic", API_KEYS["anthropic"])
+            SaveApiKey("xai", API_KEYS["xai"])
+        }
 
         EnsureActiveProviderHasKey()
         settingsGui.ExecuteScriptAsync('setCurrentProvider("' . EscJson(API_PROVIDER) . '")')
         settingsGui.ExecuteScriptAsync('setCurrentModel("' . EscJson(API_MODEL) . '")')
+        SendApiKeysToSettings()
         FetchAndSendModels()
 
         if HasAnyApiKey(API_KEYS)

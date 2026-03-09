@@ -33,6 +33,7 @@ type ConversationSnapshot = {
 
 const ROOT_DIR = resolve(import.meta.dir, "..", "..");
 const SETTINGS_FILE = join(ROOT_DIR, "settings.conf");
+const MODEL_CONFIG_FILE = join(ROOT_DIR, "model.conf");
 const ENV_FILE = join(ROOT_DIR, ".env");
 const PROMPTS_DIR = join(ROOT_DIR, "prompts");
 const DATA_DIR = join(ROOT_DIR, "data");
@@ -151,6 +152,13 @@ async function readKeyValueFile(filePath: string): Promise<Record<string, string
   }
 }
 
+async function writeKeyValueFile(filePath: string, data: Record<string, string>): Promise<void> {
+  const content = Object.entries(data)
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+  await writeFile(filePath, content ? `${content}\n` : "", "utf8");
+}
+
 async function loadConfig() {
   const env = await readKeyValueFile(ENV_FILE);
   const settings = await readKeyValueFile(SETTINGS_FILE);
@@ -170,6 +178,67 @@ async function loadConfig() {
     provider,
     maxTokens: Number(settings.max_tokens || "8192") || 8192,
   };
+}
+
+async function saveSettingsPatch(patch: Record<string, string>): Promise<Record<string, string>> {
+  const settings = await readKeyValueFile(SETTINGS_FILE);
+  for (const [key, value] of Object.entries(patch)) {
+    settings[key] = value;
+  }
+  await writeKeyValueFile(SETTINGS_FILE, settings);
+  return settings;
+}
+
+async function settingsSnapshot() {
+  const config = await loadConfig();
+  return {
+    provider: config.provider,
+    providerLabel: providerLabel(config.provider),
+    currentModel: modelForProvider(config.settings, config.env, config.provider),
+    model_openrouter: modelForProvider(config.settings, config.env, "openrouter"),
+    model_openai: modelForProvider(config.settings, config.env, "openai"),
+    model_anthropic: modelForProvider(config.settings, config.env, "anthropic"),
+    model_xai: modelForProvider(config.settings, config.env, "xai"),
+    openrouterKey: config.keys.openrouter,
+    openaiKey: config.keys.openai,
+    anthropicKey: config.keys.anthropic,
+    xaiKey: config.keys.xai,
+    maxTokens: config.maxTokens,
+  };
+}
+
+async function saveProviderSelection(providerInput: string) {
+  const provider = normalizeProvider(providerInput);
+  await saveSettingsPatch({ provider });
+  return settingsSnapshot();
+}
+
+async function saveModelSelection(providerInput: string, model: string) {
+  const provider = normalizeProvider(providerInput);
+  const trimmedModel = String(model || "").trim();
+  if (!trimmedModel) {
+    throw new Error("Model cannot be empty");
+  }
+  await saveSettingsPatch({ [`model_${provider}`]: trimmedModel });
+  if (provider === "openrouter") {
+    await writeFile(MODEL_CONFIG_FILE, `${trimmedModel}\n`, "utf8");
+  }
+  return settingsSnapshot();
+}
+
+async function saveApiKeys(payload: {
+  openrouterKey?: string;
+  openaiKey?: string;
+  anthropicKey?: string;
+  xaiKey?: string;
+}) {
+  await saveSettingsPatch({
+    api_key_openrouter: String(payload.openrouterKey || "").trim(),
+    api_key_openai: String(payload.openaiKey || "").trim(),
+    api_key_anthropic: String(payload.anthropicKey || "").trim(),
+    api_key_xai: String(payload.xaiKey || "").trim(),
+  });
+  return settingsSnapshot();
 }
 
 function modelForProvider(settings: Record<string, string>, env: Record<string, string>, provider: Provider): string {
@@ -666,6 +735,42 @@ async function handleRequest(request: Request): Promise<Response> {
       model: modelForProvider(config.settings, config.env, config.provider),
       backendUrl: `http://${HOST}:${PORT}`,
     });
+  }
+
+  if (url.pathname === "/v1/settings" && request.method === "GET") {
+    return json(await settingsSnapshot());
+  }
+
+  if (url.pathname === "/v1/settings/provider" && request.method === "PUT") {
+    try {
+      const body = await requestBody<{ provider?: string }>(request);
+      return json(await saveProviderSelection(String(body.provider || "")));
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
+  if (url.pathname === "/v1/settings/model" && request.method === "PUT") {
+    try {
+      const body = await requestBody<{ provider?: string; model?: string }>(request);
+      return json(await saveModelSelection(String(body.provider || ""), String(body.model || "")));
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
+  if (url.pathname === "/v1/settings/api-keys" && request.method === "PUT") {
+    try {
+      const body = await requestBody<{
+        openrouterKey?: string;
+        openaiKey?: string;
+        anthropicKey?: string;
+        xaiKey?: string;
+      }>(request);
+      return json(await saveApiKeys(body));
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
   }
 
   if (url.pathname === "/v1/models" && request.method === "GET") {

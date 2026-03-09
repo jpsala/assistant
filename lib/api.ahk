@@ -240,6 +240,86 @@ JsonUnescape(s) {
     return s
 }
 
+BackendExtractJsonString(rawJson, key) {
+    pattern := '"' . key . '"\s*:\s*"((?:[^"\\]|\\.)*)"'
+    if RegExMatch(rawJson, pattern, &m)
+        return JsonUnescape(m[1])
+    return ""
+}
+
+BackendExtractJsonInt(rawJson, key, defaultValue := 0) {
+    pattern := '"' . key . '"\s*:\s*(\d+)'
+    if RegExMatch(rawJson, pattern, &m)
+        return Integer(m[1])
+    return defaultValue
+}
+
+BackendGetSettingsJson() {
+    rawJson := HttpRequest("GET", GetBackendBaseUrl() . "/v1/settings")
+    if RegExMatch(rawJson, '"error"\s*:\s*"((?:[^"\\]|\\.)*)"', &mErr)
+        throw Error(JsonUnescape(mErr[1]))
+    return rawJson
+}
+
+SyncRuntimeStateFromBackend() {
+    global API_PROVIDER, API_MODEL, API_KEYS, MAX_TOKENS
+
+    if !EnsureBackendServer()
+        return false
+
+    rawJson := BackendGetSettingsJson()
+    API_PROVIDER := NormalizeProvider(BackendExtractJsonString(rawJson, "provider"))
+    API_MODEL := BackendExtractJsonString(rawJson, "currentModel")
+    if (Trim(API_MODEL) = "")
+        API_MODEL := LoadSelectedModel(API_PROVIDER)
+
+    API_KEYS["openrouter"] := Trim(BackendExtractJsonString(rawJson, "openrouterKey"))
+    API_KEYS["openai"] := Trim(BackendExtractJsonString(rawJson, "openaiKey"))
+    API_KEYS["anthropic"] := Trim(BackendExtractJsonString(rawJson, "anthropicKey"))
+    API_KEYS["xai"] := Trim(BackendExtractJsonString(rawJson, "xaiKey"))
+    MAX_TOKENS := BackendExtractJsonInt(rawJson, "maxTokens", MAX_TOKENS)
+    return true
+}
+
+BackendSaveSelectedProvider(provider) {
+    provider := NormalizeProvider(provider)
+    payload := '{"provider":"' . EscJson(provider) . '"}'
+    rawJson := HttpRequest("PUT", GetBackendBaseUrl() . "/v1/settings/provider", payload, Map("Content-Type", "application/json"))
+    if RegExMatch(rawJson, '"error"\s*:\s*"((?:[^"\\]|\\.)*)"', &mErr)
+        throw Error(JsonUnescape(mErr[1]))
+    SyncRuntimeStateFromBackend()
+}
+
+BackendSaveSelectedModel(modelId, provider := "") {
+    global API_PROVIDER
+
+    if (provider = "")
+        provider := API_PROVIDER
+    provider := NormalizeProvider(provider)
+    modelId := Trim(modelId)
+    if (modelId = "")
+        return
+
+    payload := '{"provider":"' . EscJson(provider) . '","model":"' . EscJson(modelId) . '"}'
+    rawJson := HttpRequest("PUT", GetBackendBaseUrl() . "/v1/settings/model", payload, Map("Content-Type", "application/json"))
+    if RegExMatch(rawJson, '"error"\s*:\s*"((?:[^"\\]|\\.)*)"', &mErr)
+        throw Error(JsonUnescape(mErr[1]))
+    SyncRuntimeStateFromBackend()
+}
+
+BackendSaveApiKeys(keysMap) {
+    payload := '{'
+        . '"openrouterKey":"' . EscJson(keysMap["openrouter"]) . '",'
+        . '"openaiKey":"' . EscJson(keysMap["openai"]) . '",'
+        . '"anthropicKey":"' . EscJson(keysMap["anthropic"]) . '",'
+        . '"xaiKey":"' . EscJson(keysMap["xai"]) . '"'
+        . '}'
+    rawJson := HttpRequest("PUT", GetBackendBaseUrl() . "/v1/settings/api-keys", payload, Map("Content-Type", "application/json"))
+    if RegExMatch(rawJson, '"error"\s*:\s*"((?:[^"\\]|\\.)*)"', &mErr)
+        throw Error(JsonUnescape(mErr[1]))
+    SyncRuntimeStateFromBackend()
+}
+
 ; ============================================================
 ; MODEL + PROVIDER SELECTION — persistence + defaults
 ; ============================================================
