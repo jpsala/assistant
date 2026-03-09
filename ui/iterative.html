@@ -84,6 +84,12 @@
     color: var(--text-secondary);
   }
 
+  .chat-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .chat-history {
     flex: 1;
     min-height: 0;
@@ -224,6 +230,85 @@
     gap: 8px;
   }
 
+  .history-panel {
+    position: fixed;
+    top: 52px;
+    right: 16px;
+    width: min(340px, calc(100vw - 32px));
+    max-height: min(70vh, 560px);
+    display: none;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: rgba(24,24,24,0.98);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    overflow: hidden;
+    z-index: 40;
+  }
+
+  .history-panel.visible {
+    display: flex;
+  }
+
+  .history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.03);
+  }
+
+  .history-title {
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .history-list {
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .history-item {
+    padding: 10px;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.02);
+    cursor: pointer;
+  }
+
+  .history-item:hover {
+    background: rgba(255,255,255,0.05);
+    border-color: rgba(255,255,255,0.12);
+  }
+
+  .history-item-title {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.35;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .history-item-meta,
+  .history-empty {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  .history-empty {
+    padding: 12px 10px;
+  }
+
   button {
     padding: 6px 14px;
     border: 1px solid var(--border);
@@ -276,7 +361,10 @@
     <div class="chat-shell">
         <div class="chat-header">
           <div class="chat-meta" id="session-meta">Conversation</div>
-        <div class="chat-meta">First line can be `/prompt name` · Enter to send · Shift+Enter for newline</div>
+        <div class="chat-header-actions">
+          <div class="chat-meta">First line can be `/prompt name` · Enter to send · Shift+Enter for newline</div>
+          <button id="btn-history">History</button>
+        </div>
       </div>
 
       <div class="chat-history" id="chat-history"></div>
@@ -295,6 +383,16 @@
           <button id="btn-close">Close</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="history-panel" id="history-panel">
+    <div class="history-header">
+      <div class="history-title">Recent Sessions</div>
+      <button id="btn-history-refresh">Refresh</button>
+    </div>
+    <div class="history-list" id="history-list">
+      <div class="history-empty">No saved sessions yet.</div>
     </div>
   </div>
 
@@ -319,6 +417,7 @@
   let slashActiveIndex = -1;
   let saveConversationTimer = 0;
   let promptWatch = null;
+  let recentConversations = [];
 
   const originalText = document.getElementById('original-text');
   const sessionMeta = document.getElementById('session-meta');
@@ -326,6 +425,8 @@
   const composerInput = document.getElementById('composer-input');
   const statusEl = document.getElementById('status');
   const slashDropdown = document.getElementById('slash-dropdown');
+  const historyPanel = document.getElementById('history-panel');
+  const historyList = document.getElementById('history-list');
 
   function post(action, data = {}) {
     postToAHK({ action, ...data });
@@ -337,6 +438,83 @@
 
   function updateSessionMeta() {
     sessionMeta.textContent = [conversationState.providerLabel, conversationState.model].filter(Boolean).join(' · ') || 'Conversation';
+  }
+
+  function formatHistoryDate(value) {
+    if (!value) return 'Unknown date';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
+  }
+
+  function renderHistoryList() {
+    historyList.innerHTML = '';
+    if (!recentConversations.length) {
+      historyList.innerHTML = '<div class="history-empty">No saved sessions yet.</div>';
+      return;
+    }
+
+    recentConversations.forEach((item) => {
+      const row = document.createElement('div');
+      row.className = 'history-item';
+      const preview = item.latestAssistant || item.original || 'Untitled session';
+      const title = document.createElement('div');
+      title.className = 'history-item-title';
+      title.textContent = preview;
+      const meta = document.createElement('div');
+      meta.className = 'history-item-meta';
+      meta.textContent =
+        [item.providerLabel, item.model].filter(Boolean).join(' · ') +
+        (item.messageCount ? ' · ' + item.messageCount + ' msgs' : '') +
+        (item.updatedAt ? ' · ' + formatHistoryDate(item.updatedAt) : '');
+      row.appendChild(title);
+      row.appendChild(meta);
+      row.addEventListener('click', () => {
+        loadConversationById(item.id).catch(() => {
+          setStatus('Could not load session');
+        });
+      });
+      historyList.appendChild(row);
+    });
+  }
+
+  async function loadRecentConversations() {
+    const response = await fetch(`${backendBaseUrl}/v1/conversations`);
+    if (!response.ok) {
+      throw new Error(await response.text() || `HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    recentConversations = Array.isArray(payload.conversations) ? payload.conversations : [];
+    renderHistoryList();
+  }
+
+  async function loadConversationById(id) {
+    setStatus('Loading session...');
+    const response = await fetch(`${backendBaseUrl}/v1/conversations/${encodeURIComponent(id)}`);
+    if (!response.ok) {
+      throw new Error(await response.text() || `HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    setConversationData(payload);
+    historyPanel.classList.remove('visible');
+    setStatus('Session loaded');
+    focusComposer();
+  }
+
+  async function toggleHistoryPanel() {
+    if (historyPanel.classList.contains('visible')) {
+      historyPanel.classList.remove('visible');
+      return;
+    }
+
+    historyPanel.classList.add('visible');
+    historyList.innerHTML = '<div class="history-empty">Loading sessions...</div>';
+    try {
+      await loadRecentConversations();
+    } catch (error) {
+      historyList.innerHTML = '<div class="history-empty">Could not load saved sessions.</div>';
+      setStatus('History unavailable');
+    }
   }
 
   function setPromptCatalog(data) {
@@ -399,7 +577,7 @@
     if (!conversationState.sessionId) {
       conversationState.sessionId = crypto.randomUUID();
     }
-    await fetch(`${backendBaseUrl}/v1/conversations`, {
+    const response = await fetch(`${backendBaseUrl}/v1/conversations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -411,6 +589,12 @@
         messages: conversationState.messages
       })
     });
+    if (!response.ok) {
+      throw new Error(await response.text() || `HTTP ${response.status}`);
+    }
+    if (historyPanel.classList.contains('visible')) {
+      loadRecentConversations().catch(() => {});
+    }
   }
 
   async function streamAssistantReply(transcript, provider, model) {
@@ -703,6 +887,15 @@
   }
 
   document.getElementById('btn-send').addEventListener('click', sendComposerMessage);
+  document.getElementById('btn-history').addEventListener('click', () => {
+    toggleHistoryPanel().catch(() => {});
+  });
+  document.getElementById('btn-history-refresh').addEventListener('click', () => {
+    loadRecentConversations().catch(() => {
+      historyList.innerHTML = '<div class="history-empty">Could not load saved sessions.</div>';
+      setStatus('History unavailable');
+    });
+  });
   document.getElementById('btn-copy').addEventListener('click', () => {
     post('copyOutput', { text: getLatestAssistantText() });
   });
@@ -758,6 +951,10 @@
       return;
     }
     if (e.key === 'Escape') {
+      if (historyPanel.classList.contains('visible')) {
+        historyPanel.classList.remove('visible');
+        return;
+      }
       e.preventDefault();
       post('close');
     }

@@ -8,6 +8,7 @@ All notable changes to AI Assistant are documented in this file.
 - Bun backend under `backend/src/index.ts` for typed provider I/O, model listing, prompt watching, and conversation persistence
 - Prompt Chat streaming via SSE when the Bun backend is available
 - Prompt Chat session persistence under `data/conversations/*.json`
+- Prompt Chat history panel for reopening recent saved sessions from the UI
 - Local backend validation tooling via `package.json`, `tsconfig.json`, `bun.lock`, TypeScript, and Bun type definitions
 - `@confirm` directive for hotkey prompts: shows a pre-run dialog letting you review and edit both the prompt text and the input text before the API call is made. Add `@confirm:true` in a prompt file or toggle the new checkbox in the Prompt Editor.
 - "Manual" built-in prompt (hotkey `Alt+T,T`) as an empty `@confirm` prompt for ad-hoc one-off requests without opening the main window.

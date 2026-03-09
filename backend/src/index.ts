@@ -560,7 +560,15 @@ async function loadConversation(id: string) {
 
 async function loadRecentConversations(limit = 20) {
   const entries = await readdir(CONVERSATIONS_DIR, { withFileTypes: true }).catch(() => []);
-  const records: Array<{ id: string; updatedAt: string; original: string; model: string; providerLabel: string }> = [];
+  const records: Array<{
+    id: string;
+    updatedAt: string;
+    original: string;
+    model: string;
+    providerLabel: string;
+    messageCount: number;
+    latestAssistant: string;
+  }> = [];
 
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) {
@@ -568,12 +576,18 @@ async function loadRecentConversations(limit = 20) {
     }
     const filePath = join(CONVERSATIONS_DIR, entry.name);
     const content = JSON.parse(await readFile(filePath, "utf8"));
+    const messages = Array.isArray(content.messages) ? content.messages : [];
+    const latestAssistant =
+      [...messages].reverse().find((message: any) => message?.role === "assistant" && typeof message?.content === "string")
+        ?.content || "";
     records.push({
       id: content.id,
       updatedAt: content.updatedAt || "",
       original: content.original || "",
       model: content.model || "",
       providerLabel: content.providerLabel || "",
+      messageCount: messages.length,
+      latestAssistant,
     });
   }
 

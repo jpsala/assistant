@@ -32,6 +32,7 @@ All hotkeys are configurable in Settings (right-click tray icon).
 - **Composer**: supports `/prompt name` on the first line to inject a saved prompt into that turn
 - **Streaming replies**: when the Bun backend is running, assistant tokens appear as they arrive
 - **Persistence**: sessions are saved to `data/conversations/*.json` through the backend
+- **History panel**: recent persisted sessions can be reopened directly from Prompt Chat
 - **Actions**: copy latest assistant reply or replace selected text in the target app
 - **Shortcuts**: `Enter` to send, `Shift+Enter` for newline, `Ctrl+Enter` also sends, `Escape` hides
 
@@ -145,6 +146,7 @@ node_modules/.bin/tsc --noEmit
 - **Prompt Chat no longer has to wait for a full response before updating the UI** when the backend is active
 - **Provider/model fetching is more robust** because the Bun backend uses real JSON handling instead of regex extraction
 - **Prompt Chat sessions can persist across launches** through `data/conversations`
+- **Saved Prompt Chat sessions are now actually navigable from the UI** through the history panel
 - **Prompt updates can be pushed immediately** from the Bun backend instead of waiting for the 5-second AHK polling loop
 - **The app is easier to extend** because the risky parts are now split: AHK handles Windows automation, Bun handles network/state work
 
