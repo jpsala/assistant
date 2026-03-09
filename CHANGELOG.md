@@ -17,6 +17,7 @@ All notable changes to AI Assistant are documented in this file.
 ### Changed
 - `lib/api.ahk` now prefers the local Bun backend automatically and falls back to the legacy direct AHK provider path if the backend is unavailable
 - Settings provider/model/API key persistence now goes through Bun backend endpoints instead of direct AHK-only writes
+- Settings WebView now fetches/saves provider, model, and API key state directly against Bun instead of routing those actions through AHK
 - Prompt Chat hotkey now captures active selection into a fresh session
 - Prompt Chat send behavior now favors `Enter` to send and `Shift+Enter` for newline
 - Repository docs now describe the hybrid AHK + Bun architecture instead of an AHK-only app

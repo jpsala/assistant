@@ -346,14 +346,8 @@ HandleSettingsAction(action, rawJson) {
     case "ready":
         settingsReady := true
         try SyncRuntimeStateFromBackend()
-        ; Send current settings
-        settingsGui.ExecuteScriptAsync('setCurrentProvider("' . EscJson(API_PROVIDER) . '")')
-        settingsGui.ExecuteScriptAsync('setCurrentModel("' . EscJson(API_MODEL) . '")')
-        SendApiKeysToSettings()
         SendHotkeysToSettings()
         SendAutostartToSettings()
-        ; Fetch and send available models
-        FetchAndSendModels()
         ScheduleWindowFocus("settings", settingsGui, "document.getElementById('provider-select').focus()", 800)
 
     case "modelSelected":
@@ -374,10 +368,6 @@ HandleSettingsAction(action, rawJson) {
             else
                 SaveSelectedProvider(selectedProvider)
             EnsureActiveProviderHasKey()
-            settingsGui.ExecuteScriptAsync('setCurrentProvider("' . EscJson(API_PROVIDER) . '")')
-            settingsGui.ExecuteScriptAsync('setCurrentModel("' . EscJson(API_MODEL) . '")')
-            SendApiKeysToSettings()
-            FetchAndSendModels()
             settingsGui.ExecuteScriptAsync('setStatus("Provider saved: ' . EscJson(ProviderDisplayName(API_PROVIDER)) . '")')
             if IsObject(editorGui) && editorReady
                 SendModelsToEditor()
@@ -399,10 +389,6 @@ HandleSettingsAction(action, rawJson) {
         }
 
         EnsureActiveProviderHasKey()
-        settingsGui.ExecuteScriptAsync('setCurrentProvider("' . EscJson(API_PROVIDER) . '")')
-        settingsGui.ExecuteScriptAsync('setCurrentModel("' . EscJson(API_MODEL) . '")')
-        SendApiKeysToSettings()
-        FetchAndSendModels()
 
         if HasAnyApiKey(API_KEYS)
             settingsGui.ExecuteScriptAsync('setStatus("API keys saved")')
@@ -439,8 +425,7 @@ HandleSettingsAction(action, rawJson) {
         ResumeDynamicHotkeys()
 
     case "refreshModels":
-        settingsGui.ExecuteScriptAsync('setStatus("Fetching models...")')
-        FetchAndSendModels()
+        settingsGui.ExecuteScriptAsync('setStatus("Model refresh is handled by the backend UI")')
 
     case "minimize":
         StopWindowFocus("settings")
