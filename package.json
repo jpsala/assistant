@@ -1,0 +1,14 @@
+{
+  "name": "assistant",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node_modules/electrobun/.cache/electrobun.exe dev",
+    "dev": "node_modules/electrobun/.cache/electrobun.exe dev --watch",
+    "build": "node_modules/electrobun/.cache/electrobun.exe build"
+  },
+  "dependencies": {
+    "electrobun": "^1.15.1"
+  }
+}
