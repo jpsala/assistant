@@ -11,6 +11,7 @@ import { fetchModels } from "./llm";
 import { createLogger } from "./logger";
 import { getSettings } from "./settings";
 import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
+import { showWindowWhenReady } from "./window-show";
 import {
   getPrompts,
   savePrompt,
@@ -272,9 +273,9 @@ export async function showEditorWindow(): Promise<void> {
     url: `http://localhost:${port}/`,
     html: null,
     titleBarStyle: "hidden",
-    transparent: false,
+    transparent: true,
   });
 
   bindWindowStatePersistence(editorWindow, "editor");
-  editorWindow.show();
+  showWindowWhenReady(editorWindow, log, "window");
 }

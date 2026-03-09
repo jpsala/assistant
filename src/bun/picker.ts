@@ -24,6 +24,7 @@ import { handleReplaceStatus } from "./feedback";
 import { captureSelectedText, getForegroundWindow, findWindowByTitle, forceFocus, focusWebView2Child, logChildWindows, pasteText, clickToFocus, allowSetForegroundWindow } from "./ffi";
 import { createLogger } from "./logger";
 import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
+import { showWindowWhenReady } from "./window-show";
 
 const log = createLogger("picker");
 
@@ -346,47 +347,43 @@ export async function showPicker(): Promise<void> {
     url: `http://localhost:${port}/`,
     html: null,
     titleBarStyle: "hidden",
-    transparent: false,
+    transparent: true,
     rpc,
   });
 
   bindWindowStatePersistence(_window, "picker");
   _window.setAlwaysOnTop(true);
-  _window.show();
-
-  // Electrobun's focusWindow doesn't reliably give keyboard focus to WebView2
-  // on Windows. Poll until the native window appears, then force-focus via FFI.
-  // Also track the picker HWND so showPicker() can skip it when capturing _sourceHwnd.
-  (async () => {
-    for (let i = 0; i < 20; i++) {
-      await Bun.sleep(100);
-      const hwnd = findWindowByTitle("Prompt Picker");
-      if (hwnd) {
-        _pickerHwnd = hwnd;
-        forceFocus(hwnd);
-        log.info("window.focused", { hwnd });
-        
-        // WebView2 child window doesn't exist until NavigationCompleted fires.
-        // Wait a bit for the page to load, then use synthetic mouse click to focus.
-        await Bun.sleep(300); // Wait for WebView2 to initialize
-        
-        // Log child windows for debugging (helps discover class names)
-        logChildWindows(hwnd);
-        
-        // Try focusWebView2Child first (may work if class names are correct)
-        const focused = focusWebView2Child(hwnd);
-        if (focused) {
-          log.info("window.webview_focus_succeeded", { hwnd });
-        } else {
-          // Fallback: synthetic mouse click - most reliable method
-          // Click near the top-center where the search box is located
-          log.warn("window.webview_focus_fallback_click", { hwnd });
-          clickToFocus(hwnd, 50); // 50px from top = titlebar + search box area
+  showWindowWhenReady(_window, log, "window", () => {
+    // Electrobun's focusWindow doesn't reliably give keyboard focus to WebView2
+    // on Windows. Poll until the native window appears, then force-focus via FFI.
+    // Also track the picker HWND so showPicker() can skip it when capturing _sourceHwnd.
+    (async () => {
+      for (let i = 0; i < 20; i++) {
+        await Bun.sleep(100);
+        const hwnd = findWindowByTitle("Prompt Picker");
+        if (hwnd) {
+          _pickerHwnd = hwnd;
+          forceFocus(hwnd);
+          log.info("window.focused", { hwnd });
+          
+          // WebView2 child window doesn't exist until NavigationCompleted fires.
+          // Wait a bit for the page to load, then use synthetic mouse click to focus.
+          await Bun.sleep(300);
+          
+          logChildWindows(hwnd);
+          
+          const focused = focusWebView2Child(hwnd);
+          if (focused) {
+            log.info("window.webview_focus_succeeded", { hwnd });
+          } else {
+            log.warn("window.webview_focus_fallback_click", { hwnd });
+            clickToFocus(hwnd, 50);
+          }
+          break;
         }
-        break;
       }
-    }
-  })();
+    })();
+  });
 
   log.info("window.created");
 }

@@ -5,6 +5,7 @@ import { createLogger } from "./logger";
 import { getSettings, saveSettings, type Settings } from "./settings";
 import type { Provider } from "./prompts";
 import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
+import { showWindowWhenReady } from "./window-show";
 
 const log = createLogger("settings-window");
 
@@ -220,9 +221,9 @@ export async function showSettingsWindow(): Promise<void> {
     url: `http://localhost:${port}/`,
     html: null,
     titleBarStyle: "hidden",
-    transparent: false,
+    transparent: true,
   });
 
   bindWindowStatePersistence(settingsWindow, "settings");
-  settingsWindow.show();
+  showWindowWhenReady(settingsWindow, log, "window");
 }
