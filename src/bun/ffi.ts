@@ -327,7 +327,10 @@ export async function pasteText(
   writeClipboard(text);
   await Bun.sleep(50);
 
-  if (hwnd) u32.SetForegroundWindow(hwnd);
+  if (hwnd) {
+    allowSetForegroundWindow();
+    forceFocus(hwnd);
+  }
   await Bun.sleep(150);
 
   sendKeys(VK_CONTROL, VK_V);

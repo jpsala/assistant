@@ -53,6 +53,14 @@ export function ahkToAccelerator(spec: string): string {
   return parts.join("+");
 }
 
+export function formatHotkeyForDisplay(spec: string): string {
+  const chord = parseChord(spec);
+  if (chord) {
+    return `${chord.prefix} -> ${chord.suffix}`;
+  }
+  return ahkToAccelerator(spec);
+}
+
 /**
  * Chord spec:  "Alt+Shift+Q -> Alt+R"  or AHK  "!+q->!r"
  * Also supports AHK comma format:  "^!t,c"  (prefix ^!t, suffix c)

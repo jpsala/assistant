@@ -1,11 +1,12 @@
 import { resolve } from "node:path";
 import { Tray } from "electrobun/bun";
-import { registerHotkey, unregisterHotkey, unregisterAll, updateHotkey } from "./hotkeys";
+import { formatHotkeyForDisplay, registerHotkey, unregisterHotkey, unregisterAll, updateHotkey } from "./hotkeys";
 import { initPrompts, type PromptMap } from "./prompts";
 import { loadSettings, getSettings, type Settings } from "./settings";
 import { silentReplace, setToastCallback, type ReplaceResult } from "./replace";
 import { handleReplaceStatus } from "./feedback";
 import { showPicker, updatePickerPrompts, initPickerServer } from "./picker";
+import { initMainWindow, showMainWindow } from "./mainview-window";
 import { initSettingsWindow, showSettingsWindow } from "./settings-window";
 import { initEditorWindow, showEditorWindow } from "./editor-window";
 import { createLogger, getLogFilePath, resetLogFile } from "./logger";
@@ -36,21 +37,39 @@ log.info("settings.loaded", {
 const trayIcon = resolve(import.meta.dir, "../assets/tray-icon.ico");
 const tray = new Tray({ title: "Assistant", image: trayIcon, width: 32, height: 32 });
 
-tray.setMenu([
-  { type: "normal", label: "Open Chat", action: "open" },
-  { type: "normal", label: "Prompt Picker", action: "picker" },
-  { type: "normal", label: "Prompt Editor", action: "editor" },
-  { type: "divider" },
-  { type: "normal", label: "Settings", action: "settings" },
-  { type: "divider" },
-  { type: "normal", label: "Quit", action: "quit" },
-]);
+function withHotkeyLabel(label: string, hotkey?: string): string {
+  const normalized = hotkey?.trim();
+  return normalized ? `${label}    ${formatHotkeyForDisplay(normalized)}` : label;
+}
+
+function updateTrayMenu(settings: Settings): void {
+  tray.setMenu([
+    {
+      type: "normal",
+      label: withHotkeyLabel("Open Chat", settings.hotkeys.promptChat),
+      action: "open",
+    },
+    {
+      type: "normal",
+      label: withHotkeyLabel("Prompt Picker", settings.hotkeys.promptPicker),
+      action: "picker",
+    },
+    { type: "normal", label: "Prompt Editor", action: "editor" },
+    { type: "divider" },
+    { type: "normal", label: "Settings", action: "settings" },
+    { type: "divider" },
+    { type: "normal", label: "Quit", action: "quit" },
+  ]);
+}
+
+updateTrayMenu(settings);
 
 tray.on("tray-clicked", (event: any) => {
   const action = event.data?.action;
   switch (action) {
     case "open":
-      log.info("tray.action_not_implemented", { action });
+      log.info("tray.open_chat");
+      showMainWindow().catch((error) => log.error("tray.open_chat_failed", { error }));
       break;
     case "settings":
       log.info("tray.open_settings");
@@ -119,6 +138,7 @@ function applyPromptHotkeys(prompts: PromptMap): void {
 
 function handlePromptChat(): void {
   log.info("hotkey.prompt_chat_triggered");
+  showMainWindow().catch((error) => log.error("hotkey.prompt_chat_failed", { error }));
 }
 
 function handlePromptPicker(): void {
@@ -165,9 +185,11 @@ applyPromptHotkeys(prompts);
 updatePickerPrompts(prompts);
 
 // Start the picker HTTP server now.
+await initMainWindow();
 await initPickerServer();
 await initSettingsWindow(async (nextSettings) => {
   applySystemHotkeys(nextSettings);
+  updateTrayMenu(nextSettings);
   log.info("settings.applied", {
     provider: nextSettings.provider,
     model: nextSettings.model,

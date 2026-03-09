@@ -1,63 +1,46 @@
-# Runtime Bugs Status
+# Estado y pendientes
 
-## Current state
+Actualizado al 9 de marzo de 2026.
 
-As of March 9, 2026, the unstable dedicated feedback `BrowserWindow` has been removed from the codebase.
+## Estado actual
 
-The feedback path now uses native Windows balloon notifications from `src/bun/feedback.ts` via `System.Windows.Forms.NotifyIcon` launched through PowerShell.
+El proyecto ya tiene estas piezas funcionando en la ruta principal:
 
-What is confirmed:
+- tray app con menu y hotkeys visibles
+- Prompt Picker con captura de seleccion
+- Prompt Editor para crear y editar prompts Markdown
+- Settings con provider, modelo, API keys y hotkeys globales
+- Open Chat con contexto del texto seleccionado
+- replace silencioso sobre la seleccion actual
+- custom tooltip propio para estados de proceso, exito y error
+- ventanas con drag, resize visible y persistencia de `x/y/w/h`
 
-- picker flow still works in code
-- replace flow still works in code
-- the app rebuild succeeds after stopping the running Electrobun/Bun processes that lock `build/dev-win-x64`
-- the built runtime bundle contains the native balloon notification implementation
-- a direct smoke test logged:
-  - `feedback.status.received`
-  - `feedback.balloon.spawned`
+## Lo que ya no aplica
 
-## Previous bug status
+Estos problemas quedaron fuera de la implementacion activa:
 
-The old issues below applied to the retired `BrowserWindow` toast implementation:
+- feedback window basada en `BrowserWindow`
+- balloon nativo de Windows como camino principal
+- selector de estilos de feedback en Settings
 
-- feedback tooltip did not really close
-- feedback window could become empty or black
-- feedback window lifecycle was not production-safe
+La implementacion vigente usa solo el custom tooltip en [`src/bun/feedback.ts`](/c:/dev/electro-bun-1/src/bun/feedback.ts).
 
-Those issues are no longer the current code path. They should be treated as historical notes, not the active implementation problem.
+## Pendientes conocidos
 
-## What changed
+## Alta prioridad
 
-The redesign is already implemented in:
+1. `@confirm:true` sigue parseado pero no implementado en runtime.
+2. `undoReplace()` existe en [`src/bun/replace.ts`](/c:/dev/electro-bun-1/src/bun/replace.ts), pero no hay UX real para dispararlo.
+3. La eliminacion de prompts en [`src/bun/prompts.ts`](/c:/dev/electro-bun-1/src/bun/prompts.ts) usa `rm -f` via shell y conviene pasarla a filesystem nativo.
 
-- `src/bun/feedback.ts`
+## Validacion pendiente
 
-It now:
+1. Confirmar en uso real que `Replace Selected Text` desde Open Chat siempre vuelve a la ventana origen correcta.
+2. Confirmar que no reaparezcan flashes visuales al abrir `picker`, `settings`, `editor` y `chat`.
+3. Confirmar que los hotkeys compuestos funcionen de forma consistente en distintas apps Windows.
 
-- skips transient `capturing` and `pasting` states
-- shows native notifications for `processing`, `success`, and `error`
-- avoids creating, hiding, reusing, or closing any dedicated toast window
+## Notas operativas
 
-## Verified on disk
-
-- rebuild completed successfully on March 9, 2026 after stopping the running app
-- built bundle contains `NotifyIcon` and `ShowBalloonTip`
-- latest log contains:
-  - `status.received`
-  - `balloon.spawned`
-
-## Remaining validation
-
-The remaining work is runtime UX validation, not another `BrowserWindow` toast rewrite.
-
-Specifically:
-
-1. Launch the rebuilt app.
-2. Trigger a real prompt replace from the picker or a prompt hotkey.
-3. Confirm the native balloon appears and dismisses normally.
-4. Confirm no minimized, ghost, or black feedback window appears.
-
-## Notes
-
-- If `bun run build` fails with `EPERM: operation not permitted, rmdir`, the usual cause is the running Electrobun/Bun app still holding files under `build/dev-win-x64`.
-- In that case, stop the running `electrobun.exe` and bundled `bun.exe`, then rebuild.
+- Si `bun run build` falla con `EPERM: operation not permitted, rmdir`, casi seguro hay un `electrobun.exe` o `build/dev-win-x64/.../bun.exe` corriendo y bloqueando `build/`.
+- El texto seleccionado ya se captura correctamente en `Open Chat`; hubo un problema de encoding en el bridge hacia el webview y ahora se envia como base64 UTF-8.
+- Los secrets siguen guardandose en `%APPDATA%\\assistant\\settings.json`; para un paso posterior conviene moverlos a un store mas seguro.
