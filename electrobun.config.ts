@@ -20,10 +20,14 @@ export default {
       picker: {
         entrypoint: "src/views/picker/index.ts",
       },
+      settings: {
+        entrypoint: "src/views/settings/index.ts",
+      },
     },
     copy: {
       "src/views/mainview/index.html": "views/mainview/index.html",
       "src/views/picker/index.html": "views/picker/index.html",
+      "src/views/settings/index.html": "views/settings/index.html",
       // Starter prompts shipped with the app (seeded to %APPDATA% on first run)
       "prompts/fix-writing.md": "starter-prompts/fix-writing.md",
       "prompts/translate-english.md": "starter-prompts/translate-english.md",

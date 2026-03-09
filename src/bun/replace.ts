@@ -89,7 +89,7 @@ export async function silentReplace(
     // Came from confirm dialog — we already have text
     captureResult = {
       text: options.inputText,
-      hwnd: null,
+      hwnd: options.hwnd ?? null,
       savedClipboard: null,
     };
   } else {

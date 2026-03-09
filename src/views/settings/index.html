@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Settings</title>
+    <style>
+      :root {
+        --bg-1: #f6efe4;
+        --bg-2: #f3f5ef;
+        --ink: #1b1d1a;
+        --muted: #61665d;
+        --panel: rgba(255, 252, 245, 0.78);
+        --line: rgba(27, 29, 26, 0.09);
+        --accent: #0f766e;
+        --accent-soft: rgba(15, 118, 110, 0.12);
+        --danger: #c2410c;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        color: var(--ink);
+        font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+        background:
+          radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 30%),
+          radial-gradient(circle at bottom right, rgba(194, 65, 12, 0.08), transparent 24%),
+          linear-gradient(180deg, var(--bg-1), var(--bg-2));
+      }
+
+      body {
+        padding: 24px;
+      }
+
+      .shell {
+        max-width: 980px;
+        margin: 0 auto;
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero {
+        display: grid;
+        gap: 8px;
+      }
+
+      .eyebrow {
+        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(36px, 5vw, 52px);
+        line-height: 0.95;
+        font-weight: 700;
+      }
+
+      .sub {
+        max-width: 720px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.25fr 1fr;
+        gap: 18px;
+      }
+
+      .card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: var(--panel);
+        backdrop-filter: blur(18px);
+        box-shadow: 0 18px 42px rgba(79, 70, 45, 0.08);
+      }
+
+      .card h2 {
+        margin: 0 0 4px;
+        font-size: 22px;
+      }
+
+      .card p {
+        margin: 0 0 18px;
+        color: var(--muted);
+        line-height: 1.45;
+        font-size: 14px;
+      }
+
+      .field {
+        display: grid;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+
+      .field label {
+        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #33403a;
+      }
+
+      input, select, button {
+        font: inherit;
+      }
+
+      input, select {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(27, 29, 26, 0.12);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--ink);
+        outline: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      input:focus, select:focus {
+        border-color: rgba(15, 118, 110, 0.55);
+        box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.1);
+      }
+
+      .inline {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: end;
+      }
+
+      .key-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .hint {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 6px;
+      }
+
+      .status {
+        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .status[data-kind="ok"] { color: var(--accent); }
+      .status[data-kind="error"] { color: var(--danger); }
+      .status[data-kind="loading"] { color: #7c5c1b; }
+
+      .button {
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+        font-weight: 700;
+        cursor: pointer;
+        background: var(--accent);
+        color: white;
+        box-shadow: 0 10px 24px rgba(15, 118, 110, 0.22);
+      }
+
+      .button.secondary {
+        background: rgba(255, 255, 255, 0.74);
+        color: var(--ink);
+        box-shadow: none;
+        border: 1px solid rgba(27, 29, 26, 0.1);
+      }
+
+      .button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+
+      @media (max-width: 860px) {
+        body {
+          padding: 16px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="hero">
+        <div class="eyebrow">Assistant Control Room</div>
+        <h1>Settings that matter.</h1>
+        <div class="sub">
+          Change your default provider, choose a model, rotate API keys, and tune the
+          hotkeys without restarting the app.
+        </div>
+      </div>
+
+      <div class="grid">
+        <section class="card">
+          <h2>Model Defaults</h2>
+          <p>These values are used whenever a prompt does not override provider or model.</p>
+
+          <div class="field">
+            <label for="provider">Provider</label>
+            <select id="provider">
+              <option value="openrouter">OpenRouter</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="xai">xAI</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="model">Model</label>
+            <div class="inline">
+              <select id="model"></select>
+              <button class="button secondary" id="model-refresh" type="button">Refresh</button>
+            </div>
+            <div class="hint" id="model-hint">Load provider models when you are ready.</div>
+          </div>
+
+          <div class="field">
+            <label for="maxTokens">Max Tokens</label>
+            <input id="maxTokens" type="number" min="1" step="1" />
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>System Hotkeys</h2>
+          <p>Friendly format like <code>Alt+Shift+Space</code> is supported.</p>
+
+          <div class="field">
+            <label for="promptChat">Prompt Chat</label>
+            <input id="promptChat" type="text" />
+          </div>
+
+          <div class="field">
+            <label for="promptPicker">Prompt Picker</label>
+            <input id="promptPicker" type="text" />
+          </div>
+
+          <div class="field">
+            <label for="reloadHotkey">Reload</label>
+            <input id="reloadHotkey" type="text" />
+          </div>
+        </section>
+      </div>
+
+      <section class="card">
+        <h2>API Keys</h2>
+        <p>Keys stay local in your roaming app data settings file.</p>
+
+        <div class="key-grid">
+          <div class="field">
+            <label for="key-openrouter">OpenRouter</label>
+            <input id="key-openrouter" type="password" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="key-openai">OpenAI</label>
+            <input id="key-openai" type="password" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="key-anthropic">Anthropic</label>
+            <input id="key-anthropic" type="password" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="key-xai">xAI</label>
+            <input id="key-xai" type="password" autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="actions">
+          <div class="status" id="status" data-kind="idle">Loading settings...</div>
+          <button class="button" id="save" type="button">Save Changes</button>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="index.ts"></script>
+  </body>
+</html>

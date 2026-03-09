@@ -1,10 +1,11 @@
 import { Tray } from "electrobun/bun";
-import { registerHotkey, unregisterHotkey, unregisterAll } from "./hotkeys";
+import { registerHotkey, unregisterHotkey, unregisterAll, updateHotkey } from "./hotkeys";
 import { initPrompts, type PromptMap } from "./prompts";
-import { loadSettings, getSettings } from "./settings";
+import { loadSettings, getSettings, type Settings } from "./settings";
 import { silentReplace, setToastCallback, type ReplaceResult } from "./replace";
 import { handleReplaceStatus } from "./feedback";
 import { showPicker, updatePickerPrompts, initPickerServer } from "./picker";
+import { initSettingsWindow, showSettingsWindow } from "./settings-window";
 import { createLogger, getLogFilePath, resetLogFile } from "./logger";
 
 const log = createLogger("startup");
@@ -45,8 +46,11 @@ tray.on("tray-clicked", (event: any) => {
   const action = event.data?.action;
   switch (action) {
     case "open":
-    case "settings":
       log.info("tray.action_not_implemented", { action });
+      break;
+    case "settings":
+      log.info("tray.open_settings");
+      showSettingsWindow().catch((error) => log.error("tray.open_settings_failed", { error }));
       break;
     case "picker":
       log.info("tray.open_picker");
@@ -100,16 +104,42 @@ function applyPromptHotkeys(prompts: PromptMap): void {
 
 // ─── System hotkeys ───────────────────────────────────────────────────────────
 
-const cfg = getSettings();
-
-registerHotkey("promptChat", cfg.hotkeys.promptChat, () => {
+function handlePromptChat(): void {
   log.info("hotkey.prompt_chat_triggered");
-});
+}
 
-registerHotkey("promptPicker", cfg.hotkeys.promptPicker, () => {
+function handlePromptPicker(): void {
   log.info("hotkey.prompt_picker_triggered");
   showPicker().catch((error) => log.error("hotkey.prompt_picker_failed", { error }));
-});
+}
+
+function handleReload(): void {
+  log.info("hotkey.reload_triggered");
+}
+
+function applySystemHotkeys(settings: Settings): void {
+  if (settings.hotkeys.promptChat) {
+    updateHotkey("promptChat", settings.hotkeys.promptChat, handlePromptChat);
+  } else {
+    unregisterHotkey("promptChat");
+  }
+
+  if (settings.hotkeys.promptPicker) {
+    updateHotkey("promptPicker", settings.hotkeys.promptPicker, handlePromptPicker);
+  } else {
+    unregisterHotkey("promptPicker");
+  }
+
+  if (settings.hotkeys.reload) {
+    updateHotkey("reload", settings.hotkeys.reload, handleReload);
+  } else {
+    unregisterHotkey("reload");
+  }
+
+  log.info("system_hotkeys.updated", settings.hotkeys);
+}
+
+applySystemHotkeys(getSettings());
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
@@ -123,6 +153,13 @@ updatePickerPrompts(prompts);
 
 // Start the picker HTTP server now.
 await initPickerServer();
+await initSettingsWindow(async (nextSettings) => {
+  applySystemHotkeys(nextSettings);
+  log.info("settings.applied", {
+    provider: nextSettings.provider,
+    model: nextSettings.model,
+  });
+});
 
 // Keep the Bun event loop alive indefinitely.
 // Without this, Bun may drain the event loop and exit even with active servers.

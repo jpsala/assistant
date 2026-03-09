@@ -34,6 +34,9 @@ const VK_C = 0x43;
 const VK_V = 0x56;
 const CF_UNICODETEXT = 13;
 const GMEM_MOVEABLE = 0x0002;
+const CAPTURE_COPY_ATTEMPTS = 3;
+const CAPTURE_POLL_INTERVAL_MS = 120;
+const CAPTURE_POLL_ROUNDS = 5;
 
 // ─── INPUT struct byte layout (64-bit) ───────────────────────────────────────
 //   [0 -  3]  type        (u32) = 1 (KEYBOARD)
@@ -223,6 +226,17 @@ function clearClipboard(): void {
   u32.CloseClipboard();
 }
 
+async function readClipboardWithPolling(): Promise<string> {
+  for (let poll = 0; poll < CAPTURE_POLL_ROUNDS; poll++) {
+    await Bun.sleep(CAPTURE_POLL_INTERVAL_MS);
+    const text = readClipboard() ?? "";
+    if (text.trim()) {
+      return text;
+    }
+  }
+  return readClipboard() ?? "";
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export type CaptureResult = {
@@ -258,15 +272,47 @@ export async function captureSelectedText(targetHwnd?: unknown): Promise<Capture
   }
   await Bun.sleep(150);
 
-  const sent = sendKeys(VK_CONTROL, VK_C);
-  log.info("capture.keys_sent", { hwnd, targetThreadId, attached, sent });
+  let text = "";
+  for (let attempt = 1; attempt <= CAPTURE_COPY_ATTEMPTS; attempt++) {
+    const foregroundBeforeCopy = u32.GetForegroundWindow();
+    if (hwnd && foregroundBeforeCopy !== hwnd) {
+      u32.BringWindowToTop(hwnd);
+      u32.SetForegroundWindow(hwnd);
+      await Bun.sleep(80);
+    }
 
-  await Bun.sleep(400);
+    clearClipboard();
+    const sent = sendKeys(VK_CONTROL, VK_C);
+    log.info("capture.keys_sent", {
+      hwnd,
+      foregroundBeforeCopy,
+      targetThreadId,
+      attached,
+      sent,
+      attempt,
+      attempts: CAPTURE_COPY_ATTEMPTS,
+    });
 
-  if (attached) u32.AttachThreadInput(currentThreadId, targetThreadId, false);
+    text = await readClipboardWithPolling();
+    log.info("capture.clipboard_read", {
+      hwnd,
+      chars: text.length,
+      preview: text.slice(0, 80),
+      attempt,
+      attempts: CAPTURE_COPY_ATTEMPTS,
+    });
 
-  const text = readClipboard() ?? "";
-  log.info("capture.clipboard_read", { hwnd, chars: text.length, preview: text.slice(0, 80) });
+    if (text.trim()) break;
+
+    if (attempt < CAPTURE_COPY_ATTEMPTS) {
+      log.warn("capture.retrying", { hwnd, attempt, reason: "clipboard_empty" });
+      await Bun.sleep(120);
+    }
+  }
+
+  if (attached) {
+    u32.AttachThreadInput(currentThreadId, targetThreadId, false);
+  }
 
   if (savedClipboard !== null) writeClipboard(savedClipboard);
 
@@ -429,6 +475,13 @@ export function focusWebView2Child(frameHwnd: unknown): boolean {
 // SM_CXSCREEN = 0, SM_CYSCREEN = 1
 const SM_CXSCREEN = 0;
 const SM_CYSCREEN = 1;
+
+export function getScreenSize(): { width: number; height: number } {
+  return {
+    width: u32.GetSystemMetrics(SM_CXSCREEN) as number,
+    height: u32.GetSystemMetrics(SM_CYSCREEN) as number,
+  };
+}
 
 /**
  * Get the screen coordinates of a window.

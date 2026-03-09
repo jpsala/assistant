@@ -21,7 +21,7 @@ import type { ElectrobunRPCSchema } from "electrobun/bun";
 import type { PromptMap, Prompt } from "./prompts";
 import { silentReplace } from "./replace";
 import { handleReplaceStatus } from "./feedback";
-import { getForegroundWindow, findWindowByTitle, forceFocus, focusWebView2Child, logChildWindows, pasteText, clickToFocus, allowSetForegroundWindow } from "./ffi";
+import { captureSelectedText, getForegroundWindow, findWindowByTitle, forceFocus, focusWebView2Child, logChildWindows, pasteText, clickToFocus, allowSetForegroundWindow } from "./ffi";
 import { createLogger } from "./logger";
 
 const log = createLogger("picker");
@@ -65,6 +65,7 @@ let _server: ReturnType<typeof Bun.serve> | null = null; // held at module scope
 let _serverPort: number | null = null;
 let _sourceHwnd: unknown = null; // foreground window captured before picker opens
 let _pickerHwnd: unknown = null;  // HWND of the picker frame (set after window creation)
+let _capturedInputText: string | null = null;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -183,6 +184,7 @@ async function startPickerServer(): Promise<number> {
         const prompt = _prompts.get(name);
         if (prompt) {
           const hwnd = _sourceHwnd;
+          const inputText = _capturedInputText;
           hidePicker(); // close window so source can regain focus
           if (DEBUG_REPLACE) {
             // Debug mode: skip capture + LLM, paste a dummy string instead.
@@ -199,8 +201,17 @@ async function startPickerServer(): Promise<number> {
             // has time to receive focus back from Windows before Ctrl+C
             (async () => {
               await Bun.sleep(250);
-              log.info("execute.replace_started", { name, hwnd });
-              silentReplace(prompt, { hwnd, onStatus: handleReplaceStatus }).catch((e) =>
+              log.info("execute.replace_started", {
+                name,
+                hwnd,
+                hasPreCapturedInput: Boolean(inputText?.trim()),
+                inputChars: inputText?.length ?? 0,
+              });
+              silentReplace(prompt, {
+                hwnd,
+                inputText: inputText ?? undefined,
+                onStatus: handleReplaceStatus,
+              }).catch((e) =>
                 log.error("execute.replace_failed", { name, error: e }),
               );
             })();
@@ -287,6 +298,19 @@ export async function showPicker(): Promise<void> {
     _sourceHwnd = fg;
   }
   log.info("show.requested", { sourceHwnd: _sourceHwnd, foregroundHwnd: fg, pickerHwnd: _pickerHwnd });
+
+  try {
+    const captured = await captureSelectedText(_sourceHwnd);
+    _capturedInputText = captured.text;
+    log.info("show.pre_capture_completed", {
+      hwnd: captured.hwnd,
+      chars: captured.text.length,
+      hasText: Boolean(captured.text.trim()),
+    });
+  } catch (error) {
+    _capturedInputText = null;
+    log.error("show.pre_capture_failed", { error });
+  }
 
   // Close any existing picker (fresh load ensures keyboard focus in search box)
   if (_window) {
