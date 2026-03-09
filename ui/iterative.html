@@ -267,6 +267,24 @@
     letter-spacing: 0.08em;
   }
 
+  .history-controls {
+    padding: 8px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.015);
+  }
+
+  .history-search {
+    width: 100%;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    outline: none;
+  }
+
   .history-list {
     overflow-y: auto;
     padding: 8px;
@@ -376,6 +394,7 @@
         </div>
         <div class="composer-footer">
           <button class="primary" id="btn-send">Send</button>
+          <button id="btn-new-chat">New Chat</button>
           <button id="btn-copy">Copy Latest</button>
           <button id="btn-replace">Replace Selected Text</button>
           <span class="spacer"></span>
@@ -390,6 +409,9 @@
     <div class="history-header">
       <div class="history-title">Recent Sessions</div>
       <button id="btn-history-refresh">Refresh</button>
+    </div>
+    <div class="history-controls">
+      <input class="history-search" id="history-search" type="text" spellcheck="false" placeholder="Filter sessions...">
     </div>
     <div class="history-list" id="history-list">
       <div class="history-empty">No saved sessions yet.</div>
@@ -418,6 +440,7 @@
   let saveConversationTimer = 0;
   let promptWatch = null;
   let recentConversations = [];
+  let historyQuery = '';
 
   const originalText = document.getElementById('original-text');
   const sessionMeta = document.getElementById('session-meta');
@@ -427,6 +450,7 @@
   const slashDropdown = document.getElementById('slash-dropdown');
   const historyPanel = document.getElementById('history-panel');
   const historyList = document.getElementById('history-list');
+  const historySearch = document.getElementById('history-search');
 
   function post(action, data = {}) {
     postToAHK({ action, ...data });
@@ -447,14 +471,52 @@
     return date.toLocaleString();
   }
 
+  function buildBlankConversation(original = '') {
+    return {
+      sessionId: crypto.randomUUID(),
+      original,
+      provider: conversationState.provider || '',
+      providerLabel: conversationState.providerLabel || '',
+      model: conversationState.model || '',
+      messages: []
+    };
+  }
+
+  function resetConversation(options = {}) {
+    const preserveOriginal = options.preserveOriginal !== false;
+    const original = preserveOriginal ? (conversationState.original || '') : '';
+    conversationState = buildBlankConversation(original);
+    originalText.value = conversationState.original;
+    chatHistory.innerHTML = '';
+    composerInput.value = '';
+    slashMatches = [];
+    renderSlashDropdown();
+    updateSessionMeta();
+    setStatus('Ready');
+    focusComposer();
+  }
+
   function renderHistoryList() {
     historyList.innerHTML = '';
-    if (!recentConversations.length) {
-      historyList.innerHTML = '<div class="history-empty">No saved sessions yet.</div>';
+    const normalizedQuery = historyQuery.trim().toLowerCase();
+    const filtered = normalizedQuery === ''
+      ? recentConversations
+      : recentConversations.filter((item) => {
+          const haystack = [
+            item.original || '',
+            item.latestAssistant || '',
+            item.providerLabel || '',
+            item.model || ''
+          ].join(' ').toLowerCase();
+          return haystack.includes(normalizedQuery);
+        });
+
+    if (!filtered.length) {
+      historyList.innerHTML = '<div class="history-empty">' + (normalizedQuery ? 'No sessions match that filter.' : 'No saved sessions yet.') + '</div>';
       return;
     }
 
-    recentConversations.forEach((item) => {
+    filtered.forEach((item) => {
       const row = document.createElement('div');
       row.className = 'history-item';
       const preview = item.latestAssistant || item.original || 'Untitled session';
@@ -508,6 +570,7 @@
     }
 
     historyPanel.classList.add('visible');
+    historySearch.value = historyQuery;
     historyList.innerHTML = '<div class="history-empty">Loading sessions...</div>';
     try {
       await loadRecentConversations();
@@ -887,6 +950,9 @@
   }
 
   document.getElementById('btn-send').addEventListener('click', sendComposerMessage);
+  document.getElementById('btn-new-chat').addEventListener('click', () => {
+    resetConversation({ preserveOriginal: true });
+  });
   document.getElementById('btn-history').addEventListener('click', () => {
     toggleHistoryPanel().catch(() => {});
   });
@@ -906,6 +972,11 @@
 
   composerInput.addEventListener('input', () => {
     updateSlashMatches();
+  });
+
+  historySearch.addEventListener('input', () => {
+    historyQuery = historySearch.value || '';
+    renderHistoryList();
   });
 
   composerInput.addEventListener('keydown', (e) => {
@@ -953,6 +1024,8 @@
     if (e.key === 'Escape') {
       if (historyPanel.classList.contains('visible')) {
         historyPanel.classList.remove('visible');
+        historySearch.value = '';
+        historyQuery = '';
         return;
       }
       e.preventDefault();
