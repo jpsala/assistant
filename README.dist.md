@@ -5,24 +5,19 @@ Windows system tray app for text processing via OpenRouter, OpenAI, Anthropic, o
 Current architecture:
 
 - AHK v2 handles hotkeys, tray, clipboard automation, and WebView2 windows
-- Optional Bun backend handles streaming, JSON-based provider I/O, prompt watching, and persisted Prompt Chat sessions
+- Bundled Bun backend handles streaming, JSON-based provider I/O, prompt watching, and persisted Prompt Chat sessions
 
 ## Setup
 
 1. Run `ai-assistant.exe`
-2. On first run, a `.env` file will be created and opened in Notepad
-3. Add at least one provider API key (`OPENROUTER_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`)
-4. Save and restart the app
-
-Optional for full desktop features:
-
-5. Install Bun if you want the local backend features (`Prompt Chat`, `Settings`, streaming replies, prompt watching, saved conversations)
-6. The packaged app includes the backend source under `backend\src\`, and starts it automatically when Bun is available
+2. On first run, the app opens a setup window
+3. Choose a provider, paste an API key, validate it, and continue
+4. The packaged app stores your writable data under `%LocalAppData%\AI Assistant`
 
 Optional for development:
 
-7. From the source repo, run `bun install`
-8. Start the backend with `bun run backend:dev`
+5. From the source repo, run `bun install`
+6. Start the backend with `bun run backend:dev`
 
 ## Usage
 
@@ -39,7 +34,7 @@ Optional for development:
 4. Press `Enter` to send or `Shift+Enter` for a newline
 5. Copy the latest assistant reply or replace the original selection in-place
 
-When the Bun backend is running, Prompt Chat streams tokens as they arrive and saves the session under `data/conversations/`.
+When the backend is running, Prompt Chat streams tokens as they arrive and saves the session under your local profile data directory.
 
 ### Prompt picker
 
@@ -53,10 +48,10 @@ Press `Escape` to close without running anything. Focus returns to the app you w
 
 ## Customizing commands
 
-Edit the `.md` files inside `prompts\` to add, remove, or modify commands.
+Edit the `.md` files inside your runtime `prompts\` folder to add, remove, or modify commands.
 
-- Without Bun: the AHK app reloads the folder every 5 seconds
-- With Bun: prompt catalog updates can be pushed immediately
+- In the packaged app, prompts are copied into `%LocalAppData%\AI Assistant\prompts`
+- Prompt catalog updates can be pushed immediately through the bundled backend
 
 ### Format
 
@@ -95,13 +90,13 @@ Your prompt here.
 | File | Description |
 |------|-------------|
 | `ai-assistant.exe` | Main application |
-| `backend\src\index.ts` | Bundled Bun backend entrypoint used by packaged app features |
-| `.env` | API keys (created on first run) |
+| `backend\src\index.ts` | Bundled backend entrypoint |
+| `.env` | Seed configuration bundled with the app |
 | `.env.example` | Example env file with all supported providers |
-| `prompts\*.md` | Command definitions |
-| `model.conf` | Selected model (auto-created) |
-| `settings.conf` | Hotkeys and settings (auto-created) |
-| `data\conversations\*.json` | Prompt Chat history (auto-created when backend is used) |
+| `%LocalAppData%\AI Assistant\prompts\*.md` | Editable command definitions |
+| `%LocalAppData%\AI Assistant\model.conf` | Selected model |
+| `%LocalAppData%\AI Assistant\settings.conf` | Hotkeys and settings |
+| `%LocalAppData%\AI Assistant\data\conversations\*.json` | Prompt Chat history |
 | `ui/` | HTML interface files |
 | `lib/` | AHK libraries and WebView2 DLLs |
 

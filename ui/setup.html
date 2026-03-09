@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setup</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  body { padding: 0; }
+  .content { flex: 1; display: flex; flex-direction: column; padding: 14px 16px 12px; gap: 14px; }
+  .hero { padding: 14px; border: 1px solid var(--border); border-radius: 10px; background: linear-gradient(180deg, rgba(0,122,204,0.16), rgba(255,255,255,0.02)); }
+  .hero h2 { margin: 0 0 6px; font-size: 18px; }
+  .hero p { margin: 0; color: var(--text-secondary); line-height: 1.45; }
+  .panel { border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); padding: 12px; }
+  .panel h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); }
+  .row { margin-bottom: 10px; }
+  .row:last-child { margin-bottom: 0; }
+  label { display: block; margin-bottom: 6px; font-size: 12px; color: var(--text-secondary); }
+  select, input[type="password"], input[type="text"] {
+    width: 100%;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: var(--font-ui);
+    font-size: 13px;
+    outline: none;
+  }
+  select:focus, input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 2px var(--accent-dim); }
+  .note { font-size: 11px; color: var(--text-muted); line-height: 1.45; }
+  .storage { font-family: var(--font-mono); color: var(--text-secondary); word-break: break-all; }
+  .actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .button-row { display: flex; gap: 8px; }
+  button {
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-size: 12px;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  #validation-output { font-size: 12px; color: var(--text-secondary); line-height: 1.45; min-height: 18px; }
+  #status { font-size: 11px; color: var(--text-muted); min-height: 14px; text-align: right; }
+</style>
+</head>
+<body data-window-id="setup" data-window-resizable="true">
+  <div class="titlebar">
+    <div class="grip"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div class="titlebar-title"><span class="titlebar-icon">◆</span> First-Time Setup</div>
+    <div class="window-controls">
+      <button class="win-btn win-close" onclick="closeWindow()">&#x2715;</button>
+    </div>
+  </div>
+
+  <div class="content window-shell">
+    <div class="hero">
+      <h2>Connect your provider</h2>
+      <p>Pick a provider, validate one API key, and the app will save everything into your local user profile so the install folder can stay read-only.</p>
+    </div>
+
+    <div class="panel">
+      <h3>Connection</h3>
+      <div class="row">
+        <label for="provider-select">Provider</label>
+        <select id="provider-select">
+          <option value="openrouter">OpenRouter</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="xai">xAI</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="api-key-input">API key</label>
+        <input type="password" id="api-key-input" placeholder="Paste the key for the selected provider">
+      </div>
+      <div class="row note">
+        Runtime storage:
+        <div id="storage-root" class="storage"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Validation</h3>
+      <div id="validation-output">Validate the selected provider before continuing.</div>
+    </div>
+
+    <div class="actions">
+      <button id="settings-link">Open full settings</button>
+      <div class="button-row">
+        <button id="validate-btn">Validate key</button>
+        <button id="continue-btn" class="primary" disabled>Save and continue</button>
+      </div>
+    </div>
+
+    <div id="status">Loading setup...</div>
+  </div>
+
+<script src="ahk-bridge.js"></script>
+<script src="window-ui.js"></script>
+<script>
+  const backendBaseUrl = 'http://127.0.0.1:8765';
+  let snapshot = null;
+  let validationState = { provider: '', apiKey: '', ok: false };
+
+  const providerSelect = document.getElementById('provider-select');
+  const apiKeyInput = document.getElementById('api-key-input');
+  const validationOutput = document.getElementById('validation-output');
+  const continueBtn = document.getElementById('continue-btn');
+  const statusEl = document.getElementById('status');
+  const storageRootEl = document.getElementById('storage-root');
+
+  function post(action, data = {}) {
+    postToAHK({ action, ...data });
+  }
+
+  function focusPrimaryField() {
+    apiKeyInput.focus();
+    apiKeyInput.select();
+  }
+
+  async function fetchJson(path, options = {}) {
+    const response = await fetch(backendBaseUrl + path, options);
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (e) {}
+    if (!response.ok) {
+      throw new Error(payload && payload.error ? payload.error : `HTTP ${response.status}`);
+    }
+    return payload;
+  }
+
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  function invalidateValidation() {
+    validationState = { provider: '', apiKey: '', ok: false };
+    continueBtn.disabled = true;
+  }
+
+  function currentProviderKeyField(provider) {
+    if (!snapshot) return '';
+    if (provider === 'openrouter') return snapshot.openrouterKey || '';
+    if (provider === 'openai') return snapshot.openaiKey || '';
+    if (provider === 'anthropic') return snapshot.anthropicKey || '';
+    if (provider === 'xai') return snapshot.xaiKey || '';
+    return '';
+  }
+
+  async function loadSnapshot() {
+    snapshot = await fetchJson('/v1/settings');
+    providerSelect.value = snapshot.provider || 'openrouter';
+    apiKeyInput.value = currentProviderKeyField(providerSelect.value);
+    storageRootEl.textContent = snapshot.storageRoot || '';
+    if (snapshot.configured) {
+      validationOutput.textContent = 'A provider is already configured. You can update it here or open full settings.';
+    }
+    setStatus(snapshot.configured ? 'Existing configuration loaded' : 'Setup required');
+  }
+
+  async function validateCurrent() {
+    const provider = providerSelect.value;
+    const apiKey = apiKeyInput.value.trim();
+    if (!apiKey) {
+      throw new Error('Paste an API key first');
+    }
+
+    setStatus('Validating provider...');
+    const result = await fetchJson('/v1/setup/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, apiKey })
+    });
+
+    validationState = { provider, apiKey, ok: true };
+    continueBtn.disabled = false;
+
+    const models = Array.isArray(result.models) ? result.models : [];
+    const sample = models.slice(0, 3).map((item) => item.id).join(', ');
+    validationOutput.textContent =
+      `Validated ${result.providerLabel}. ${result.modelCount} models available.` +
+      (sample ? ` Sample: ${sample}` : '');
+    setStatus('Validation succeeded');
+  }
+
+  async function completeSetup() {
+    const provider = providerSelect.value;
+    const apiKey = apiKeyInput.value.trim();
+    if (!validationState.ok || validationState.provider !== provider || validationState.apiKey !== apiKey) {
+      await validateCurrent();
+    }
+
+    const payload = {
+      openrouterKey: provider === 'openrouter' ? apiKey : (snapshot?.openrouterKey || ''),
+      openaiKey: provider === 'openai' ? apiKey : (snapshot?.openaiKey || ''),
+      anthropicKey: provider === 'anthropic' ? apiKey : (snapshot?.anthropicKey || ''),
+      xaiKey: provider === 'xai' ? apiKey : (snapshot?.xaiKey || '')
+    };
+
+    setStatus('Saving setup...');
+    await fetchJson('/v1/settings/provider', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider })
+    });
+    snapshot = await fetchJson('/v1/settings/api-keys', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    setStatus('Setup complete');
+    post('complete');
+  }
+
+  providerSelect.addEventListener('change', () => {
+    apiKeyInput.value = currentProviderKeyField(providerSelect.value);
+    invalidateValidation();
+    validationOutput.textContent = 'Validate the selected provider before continuing.';
+  });
+
+  apiKeyInput.addEventListener('input', () => {
+    invalidateValidation();
+  });
+
+  document.getElementById('validate-btn').addEventListener('click', () => {
+    validateCurrent().catch((error) => {
+      validationOutput.textContent = error.message;
+      setStatus('Validation failed');
+    });
+  });
+
+  document.getElementById('continue-btn').addEventListener('click', () => {
+    completeSetup().catch((error) => {
+      setStatus('Setup failed: ' + error.message);
+    });
+  });
+
+  document.getElementById('settings-link').addEventListener('click', () => {
+    post('openSettings');
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      post('close');
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initWindowUI({ persistTextareaSize: false });
+    loadSnapshot()
+      .then(() => post('ready'))
+      .catch((error) => setStatus('Setup failed to load: ' + error.message));
+  });
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ setlocal
 
 set "SRC=%~dp0"
 set "DIST=%SRC%dist"
+set "BUN_EXE="
 
 :: Find Ahk2Exe — check common locations
 set "AHK2EXE="
@@ -53,9 +54,19 @@ echo Base: %BASE%
 echo Output: %DIST%
 echo.
 
+:: Find Bun executable to bundle for packaged runtime
+if exist "%SRC%bin\bun.exe" set "BUN_EXE=%SRC%bin\bun.exe"
+if "%BUN_EXE%"=="" if exist "C:\Program Files\nodejs\node_modules\bun\bin\bun.exe" set "BUN_EXE=C:\Program Files\nodejs\node_modules\bun\bin\bun.exe"
+if "%BUN_EXE%"=="" if exist "%LOCALAPPDATA%\Programs\Bun\bun.exe" set "BUN_EXE=%LOCALAPPDATA%\Programs\Bun\bun.exe"
+if "%BUN_EXE%"=="" if exist "%USERPROFILE%\.bun\bin\bun.exe" set "BUN_EXE=%USERPROFILE%\.bun\bin\bun.exe"
+if "%BUN_EXE%"=="" (
+    echo WARNING: Bun executable not found. Packaged backend startup will depend on a machine-wide Bun install.
+)
+
 :: Clean dist
 if exist "%DIST%" rmdir /s /q "%DIST%"
 mkdir "%DIST%"
+mkdir "%DIST%\bin"
 mkdir "%DIST%\ui"
 mkdir "%DIST%\backend"
 mkdir "%DIST%\backend\src"
@@ -82,6 +93,7 @@ copy "%SRC%ui\settings.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\prompt-editor.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\prompt-confirm.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\picker.html" "%DIST%\ui\" >nul
+copy "%SRC%ui\setup.html" "%DIST%\ui\" >nul
 copy "%SRC%ui\shared.css" "%DIST%\ui\" >nul
 copy "%SRC%ui\window-ui.js" "%DIST%\ui\" >nul
 copy "%SRC%ui\ahk-bridge.js" "%DIST%\ui\" >nul
@@ -89,6 +101,7 @@ copy "%SRC%backend\src\index.ts" "%DIST%\backend\src\" >nul
 copy "%SRC%backend\src\smoke-test.ts" "%DIST%\backend\src\" >nul
 copy "%SRC%lib\32bit\WebView2Loader.dll" "%DIST%\lib\32bit\" >nul
 copy "%SRC%lib\64bit\WebView2Loader.dll" "%DIST%\lib\64bit\" >nul
+if not "%BUN_EXE%"=="" copy "%BUN_EXE%" "%DIST%\bin\bun.exe" >nul
 if exist "%SRC%icon.ico" copy "%SRC%icon.ico" "%DIST%\" >nul
 
 :: Copy prompt files

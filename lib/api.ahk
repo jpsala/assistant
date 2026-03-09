@@ -1,8 +1,96 @@
 ; API Module
 ; Multi-provider HTTP calls and JSON handling
 
-SETTINGS_FILE := A_ScriptDir . "\settings.conf"
-MODEL_CONFIG_FILE := A_ScriptDir . "\model.conf"
+GetInstallRootDir() {
+    return A_ScriptDir
+}
+
+GetRuntimeRootDir() {
+    if !A_IsCompiled
+        return A_ScriptDir
+
+    localAppData := EnvGet("LocalAppData")
+    if (localAppData = "")
+        return A_ScriptDir
+    return localAppData . "\AI Assistant"
+}
+
+CopyFileIfMissing(sourcePath, targetPath) {
+    if (!FileExist(sourcePath) || FileExist(targetPath))
+        return
+    SplitPath(targetPath, , &targetDir)
+    if (targetDir != "" && !DirExist(targetDir))
+        DirCreate(targetDir)
+    FileCopy(sourcePath, targetPath, false)
+}
+
+SeedPromptCatalogIfMissing() {
+    global PROMPTS_DIR, PROMPTS_BUNDLED_DIR
+
+    if !DirExist(PROMPTS_DIR)
+        DirCreate(PROMPTS_DIR)
+
+    hasRuntimePrompts := false
+    Loop Files, PROMPTS_DIR . "\*.md", "F" {
+        hasRuntimePrompts := true
+        break
+    }
+    if hasRuntimePrompts || !DirExist(PROMPTS_BUNDLED_DIR)
+        return
+
+    Loop Files, PROMPTS_BUNDLED_DIR . "\*.md", "F"
+        FileCopy(A_LoopFileFullPath, PROMPTS_DIR . "\" . A_LoopFileName, false)
+}
+
+MigrateLegacyRuntimeFiles() {
+    global APP_INSTALL_DIR, APP_RUNTIME_DIR, SETTINGS_FILE, MODEL_CONFIG_FILE, ENV_FILE, PROMPTS_LEGACY_FILE
+
+    if !A_IsCompiled || (APP_RUNTIME_DIR = APP_INSTALL_DIR)
+        return
+
+    CopyFileIfMissing(APP_INSTALL_DIR . "\settings.conf", SETTINGS_FILE)
+    CopyFileIfMissing(APP_INSTALL_DIR . "\model.conf", MODEL_CONFIG_FILE)
+    CopyFileIfMissing(APP_INSTALL_DIR . "\.env", ENV_FILE)
+    CopyFileIfMissing(APP_INSTALL_DIR . "\prompts.json", PROMPTS_LEGACY_FILE)
+}
+
+EnsureRuntimeStorage() {
+    global APP_RUNTIME_DIR, DATA_DIR, CONVERSATIONS_DIR, PROMPTS_DIR, ENV_FILE, APP_INSTALL_DIR
+
+    if !DirExist(APP_RUNTIME_DIR)
+        DirCreate(APP_RUNTIME_DIR)
+    if !DirExist(DATA_DIR)
+        DirCreate(DATA_DIR)
+    if !DirExist(CONVERSATIONS_DIR)
+        DirCreate(CONVERSATIONS_DIR)
+
+    MigrateLegacyRuntimeFiles()
+    SeedPromptCatalogIfMissing()
+
+    if !FileExist(ENV_FILE) {
+        if FileExist(APP_INSTALL_DIR . "\.env")
+            FileCopy(APP_INSTALL_DIR . "\.env", ENV_FILE, false)
+        else if FileExist(APP_INSTALL_DIR . "\.env.dist")
+            FileCopy(APP_INSTALL_DIR . "\.env.dist", ENV_FILE, false)
+    }
+}
+
+APP_INSTALL_DIR := GetInstallRootDir()
+APP_RUNTIME_DIR := GetRuntimeRootDir()
+APP_MODE := A_IsCompiled ? "packaged" : "source"
+APP_BIN_DIR := APP_INSTALL_DIR . "\bin"
+DATA_DIR := APP_RUNTIME_DIR . "\data"
+CONVERSATIONS_DIR := DATA_DIR . "\conversations"
+PROMPTS_BUNDLED_DIR := APP_INSTALL_DIR . "\prompts"
+PROMPTS_DIR := APP_RUNTIME_DIR . "\prompts"
+PROMPTS_LEGACY_FILE := APP_RUNTIME_DIR . "\prompts.json"
+ENV_FILE := APP_RUNTIME_DIR . "\.env"
+SETTINGS_FILE := APP_RUNTIME_DIR . "\settings.conf"
+MODEL_CONFIG_FILE := APP_RUNTIME_DIR . "\model.conf"
+DEBUG_LOG_FILE := DATA_DIR . "\debug.log"
+
+EnsureRuntimeStorage()
+
 BACKEND_DEFAULT_URL := "http://127.0.0.1:8765"
 DEFAULT_PROVIDER := "openrouter"
 DEFAULT_MODELS := Map(
@@ -211,7 +299,7 @@ ResolveBunCandidate(candidate) {
 }
 
 FindBunExecutable() {
-    global BUN_EXECUTABLE
+    global BUN_EXECUTABLE, APP_BIN_DIR
 
     if (BUN_EXECUTABLE != "")
         return BUN_EXECUTABLE
@@ -222,6 +310,7 @@ FindBunExecutable() {
     programFilesX86 := EnvGet("ProgramFiles(x86)")
     candidates := [
         EnvGet("BUN_EXE"),
+        APP_BIN_DIR . "\bun.exe",
         A_ScriptDir . "\node_modules\bun\bin\bun.exe",
         localAppData != "" ? localAppData . "\Programs\Bun\bun.exe" : "",
         userProfile != "" ? userProfile . "\.bun\bin\bun.exe" : "",
@@ -259,6 +348,7 @@ FindBunExecutable() {
 
 EnsureBackendServer() {
     global BACKEND_READY, BACKEND_BOOT_ATTEMPTED
+    global APP_MODE, APP_RUNTIME_DIR, ENV_FILE, SETTINGS_FILE, MODEL_CONFIG_FILE, PROMPTS_DIR, DATA_DIR
 
     if (BACKEND_READY && BackendHealthCheck())
         return true
@@ -268,8 +358,16 @@ EnsureBackendServer() {
         return true
     }
 
-    if BACKEND_BOOT_ATTEMPTED
-        return false
+    if BACKEND_BOOT_ATTEMPTED {
+        Loop 24 {
+            Sleep(250)
+            if BackendHealthCheck() {
+                BACKEND_READY := true
+                return true
+            }
+        }
+        BACKEND_BOOT_ATTEMPTED := false
+    }
     BACKEND_BOOT_ATTEMPTED := true
 
     backendEntry := A_ScriptDir . "\backend\src\index.ts"
@@ -279,6 +377,14 @@ EnsureBackendServer() {
     bunExe := FindBunExecutable()
     if (bunExe = "")
         return false
+
+    EnvSet("AI_ASSISTANT_ENV_FILE", ENV_FILE)
+    EnvSet("AI_ASSISTANT_SETTINGS_FILE", SETTINGS_FILE)
+    EnvSet("AI_ASSISTANT_MODEL_FILE", MODEL_CONFIG_FILE)
+    EnvSet("AI_ASSISTANT_PROMPTS_DIR", PROMPTS_DIR)
+    EnvSet("AI_ASSISTANT_DATA_DIR", DATA_DIR)
+    EnvSet("AI_ASSISTANT_STORAGE_DIR", APP_RUNTIME_DIR)
+    EnvSet("AI_ASSISTANT_APP_MODE", APP_MODE)
 
     try Run('"' . bunExe . '" "' . backendEntry . '"', A_ScriptDir, "Hide")
     catch
@@ -291,6 +397,7 @@ EnsureBackendServer() {
             return true
         }
     }
+    BACKEND_BOOT_ATTEMPTED := false
     return false
 }
 

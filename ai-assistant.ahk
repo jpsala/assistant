@@ -24,6 +24,7 @@ global API_KEYS := Map(
     "anthropic", "",
     "xai", ""
 )
+global NEEDS_SETUP := false
 
 BuildEnvTemplate() {
     return "OPENROUTER_KEY=sk-or-v1-your-openrouter-key`n"
@@ -84,9 +85,9 @@ ProviderDisplayName(provider) {
 }
 
 LoadEnv() {
-    global API_KEYS, API_PROVIDER
+    global API_KEYS, API_PROVIDER, NEEDS_SETUP, ENV_FILE
 
-    envPath := A_ScriptDir . "\.env"
+    envPath := ENV_FILE
     envExists := FileExist(envPath)
     envContent := envExists ? FileRead(envPath, "UTF-8") : ""
     savedKeys := LoadApiKeys()
@@ -94,9 +95,8 @@ LoadEnv() {
 
     if !envExists && !HasAnyApiKey(savedKeys) {
         FileAppend(BuildEnvTemplate(), envPath, "UTF-8-RAW")
-        Run("notepad.exe " . envPath)
-        MsgBox("No .env file found and no saved API keys.`n`nA template was created at:`n" . envPath . "`n`nPaste at least one API key and restart.", "AI Assistant", "Icon!")
-        ExitApp()
+        envExists := true
+        envContent := FileRead(envPath, "UTF-8")
     }
 
     API_KEYS["openrouter"] := GetEnvValue(envContent, "OPENROUTER_KEY")
@@ -121,14 +121,13 @@ LoadEnv() {
     }
 
     if !HasAnyApiKey(API_KEYS) {
-        if !envExists
-            FileAppend(BuildEnvTemplate(), envPath, "UTF-8-RAW")
-        Run("notepad.exe " . envPath)
-        MsgBox("No API key configured.`n`nSet at least one key in .env or Settings and restart.", "AI Assistant", "Icon!")
-        ExitApp()
+        NEEDS_SETUP := true
+        return false
     }
 
     EnsureActiveProviderHasKey()
+    NEEDS_SETUP := false
+    return true
 }
 
 LoadEnv()
@@ -145,6 +144,7 @@ tray := A_TrayMenu
 tray.Delete()
 promptChatTrayLabel := "Prompt Chat`tAlt+Shift+W"
 tray.Add(promptChatTrayLabel, (*) => ShowPromptChat())
+tray.Add("Setup", (*) => ShowSetupWizard())
 tray.Add("Prompt editor", (*) => ShowPromptEditor())
 tray.Add("Settings", (*) => ShowSettings())
 tray.Add()
@@ -157,6 +157,7 @@ shell32 := A_WinDir . "\System32\shell32.dll"
 imgres  := A_WinDir . "\System32\imageres.dll"
 if FileExist(iconPath)
     try tray.SetIcon(promptChatTrayLabel, iconPath, 1)
+try tray.SetIcon("Setup",         shell32, 278)   ; wizard / setup
 try tray.SetIcon("Prompt editor", shell32, 272)   ; notepad/edit
 try tray.SetIcon("Settings",      shell32, 71)    ; gear / properties
 try tray.SetIcon("Reload",        imgres,  228)   ; circular arrows / refresh
@@ -171,7 +172,6 @@ OnMessage(0x0084, WM_NCHITTEST_Handler)
 global HOTKEY_MAP := Map()  ; actionId → ahkKey (currently registered)
 global WINDOW_FOCUS_JOBS := Map()
 global RESIZABLE_WINDOW_HWNDS := Map()
-global DEBUG_LOG_FILE := A_ScriptDir . "\data\debug.log"
 
 ; Action ID → callback function
 HOTKEY_ACTIONS := Map(
@@ -263,7 +263,7 @@ EnsureBackendForView(viewName) {
 
     MsgBox(
         viewName . " needs the local Bun backend, but it could not be started.`n`n"
-        . "Install Bun or make sure bun.exe is available to the app process.",
+        . "Make sure the bundled runtime files are present or that bun.exe is available to the app process.",
         "AI Assistant",
         "Icon!"
     )
@@ -470,6 +470,100 @@ SendAutostartToSettings() {
     settingsGui.ExecuteScriptAsync("setAutostart(" . (GetAutostart() ? "true" : "false") . ")")
 }
 
+EnsureConfiguredForUse(featureName := "This feature") {
+    global NEEDS_SETUP
+    if !NEEDS_SETUP
+        return true
+
+    ShowSetupWizard()
+    ShowTip(featureName . " needs initial setup first", 2500)
+    return false
+}
+
+; ============================================================
+; SETUP WINDOW
+; ============================================================
+global setupGui := ""
+global setupReady := false
+
+ShowSetupWizard() {
+    global setupGui, setupReady
+
+    if !EnsureBackendForView("Setup")
+        return
+
+    if IsObject(setupGui) {
+        GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
+        WinGetPos(,, &curW, &curH, setupGui.Hwnd)
+        x := ml + (mr - ml - curW) // 2
+        y := mt + (mb - mt - curH) // 3
+        setupGui.Show("x" . x . " y" . y)
+        ScheduleWindowFocus("setup", setupGui, setupReady ? "focusPrimaryField()" : "", 1200)
+        return
+    }
+
+    dllPath := A_ScriptDir "\lib\" (A_PtrSize * 8) "bit\WebView2Loader.dll"
+    setupGui := WebViewGui("+AlwaysOnTop +Resize +MinSize420x360 -Caption", "Setup",, {DllPath: dllPath})
+    RegisterResizableWindow(setupGui)
+    setupGui.OnEvent("Close", SetupWindowClose)
+    if (A_IsCompiled)
+        setupGui.Control.BrowseFolder(A_ScriptDir)
+    setupGui.Control.wv.add_WebMessageReceived(SetupMessageHandler)
+    setupGui.Navigate("ui/setup.html")
+    GetPersistedWindowSize("setup", 420, 360, 560, 520, &w, &h)
+    GetActiveMonitorWorkArea(&ml, &mt, &mr, &mb)
+    x := ml + (mr - ml - w) // 2
+    y := mt + (mb - mt - h) // 3
+    setupGui.Show("x" . x . " y" . y . " w" . w . " h" . h)
+    ScheduleWindowFocus("setup", setupGui, setupReady ? "focusPrimaryField()" : "", 1200)
+}
+
+SetupWindowClose(*) {
+    global setupGui
+    StopWindowFocus("setup")
+    try {
+        PersistWindowSize(setupGui, "setup")
+        setupGui.Hide()
+    }
+    return 1
+}
+
+SetupMessageHandler(wv, msg) {
+    try data := msg.WebMessageAsJson
+    catch
+        return
+
+    if !RegExMatch(data, '"action"\s*:\s*"(\w+)"', &m)
+        return
+
+    SetTimer(HandleSetupAction.Bind(m[1], data), -1)
+}
+
+HandleSetupAction(action, rawJson := "") {
+    global setupGui, setupReady, NEEDS_SETUP
+
+    switch action {
+    case "ready":
+        setupReady := true
+        ScheduleWindowFocus("setup", setupGui, "focusPrimaryField()", 1000)
+
+    case "complete":
+        NEEDS_SETUP := false
+        try SyncRuntimeStateFromBackend()
+        StopWindowFocus("setup")
+        PersistWindowSize(setupGui, "setup")
+        setupGui.Hide()
+
+    case "openSettings":
+        ShowSettings()
+
+    case "close":
+        StopWindowFocus("setup")
+        PersistWindowSize(setupGui, "setup")
+        setupGui.Hide()
+    }
+}
+
 ; ============================================================
 ; PROMPT PICKER WINDOW
 ; ============================================================
@@ -493,6 +587,9 @@ InitPickerWindow() {
 
 ShowPickerWindow(mode := "silent") {
     global pickerGui, pickerReady, pickerPrevWin, pickerMode, pickerFocusConfirmed
+
+    if !EnsureConfiguredForUse("Prompt Picker")
+        return
 
     if !EnsureBackendForView("Prompt Picker")
         return
@@ -663,6 +760,10 @@ global iterativePendingSession := false
 
 ShowPromptChat(captureInput := false) {
     global iterativeSessionJson
+
+    if !EnsureConfiguredForUse("Prompt Chat")
+        return
+
     if captureInput {
         targetWin := WinExist("A")
         inputText := CaptureActiveSelectionText(false)
@@ -1468,8 +1569,6 @@ global COMMAND_CONFIRMS := Map()
 global PROMPT_HOTKEY_MAP := Map()
 global PROMPT_FILE_PATHS := Map()
 global ALL_COMMAND_NAMES := []
-global PROMPTS_DIR := A_ScriptDir . "\prompts"
-global PROMPTS_LEGACY_FILE := A_ScriptDir . "\prompts.json"
 global PROMPTS_LAST_MOD := ""
 ChordSetTimeout(0.9)
 
@@ -1569,6 +1668,9 @@ RegisterPromptHotkeys(newHotkeys) {
 
 ExecutePromptSilently(promptName, *) {
     global COMMAND_PROMPTS, COMMAND_MODELS, COMMAND_PROVIDERS, COMMAND_CONFIRMS, API_PROVIDER, API_MODEL
+
+    if !EnsureConfiguredForUse(promptName)
+        return
 
     if !COMMAND_PROMPTS.Has(promptName) {
         ShowTip("Prompt not found: " . promptName, 3000)
@@ -1674,6 +1776,12 @@ WarmStartupResources() {
     EnsureBackendServer()
 }
 
+ShowSetupOnStartup() {
+    global NEEDS_SETUP
+    if NEEDS_SETUP
+        ShowSetupWizard()
+}
+
 ; Startup beep (audible feedback on reload)
 SoundBeep(800, 100)
 
@@ -1682,6 +1790,7 @@ SetTimer(WarmStartupResources, -200)
 SetTimer(InitIterativeWindow, -500)
 SetTimer(InitPickerWindow, -800)
 SetTimer(InitPromptConfirmWindow, -1100)
+SetTimer(ShowSetupOnStartup, -1400)
 
 ; ============================================================
 ; RESIZE BORDER — WM_NCHITTEST override for -Caption windows

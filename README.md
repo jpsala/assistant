@@ -3,14 +3,14 @@
 Hybrid Windows desktop assistant for daily text processing.
 
 - **Shell/runtime:** AutoHotkey v2 system tray app with global hotkeys, clipboard automation, and WebView2 windows
-- **Backend:** optional Bun sidecar for provider I/O, streaming SSE, prompt watching, and conversation persistence
+- **Backend:** Bun sidecar for provider I/O, streaming SSE, prompt watching, and conversation persistence
 - **Providers:** OpenRouter, OpenAI, Anthropic, xAI
 
 ## Setup
 
 - **Runs on:** Windows 11 (AHK v2, not WSL)
-- **API keys:** `.env` (gitignored) and/or Settings window
-- **Template:** copy `.env.example` to `.env` and fill keys
+- **Packaged mode:** first-run setup wizard stores writable state under `%LocalAppData%\AI Assistant`
+- **Source mode:** `.env` (gitignored) and/or Settings window
 - **Optional dev tooling:** `bun install`
 
 ## Hotkeys
@@ -67,7 +67,7 @@ lib/
 prompts/
   *.md                    # Prompt definitions
 data/
-  conversations/*.json    # Prompt Chat session persistence (created by Bun backend)
+  conversations/*.json    # Prompt Chat session persistence (source mode)
 .env.example               # Example env with all supported providers
 .env                       # Local API keys (gitignored)
 package.json               # Bun scripts + dev dependencies
@@ -99,11 +99,12 @@ Translate this text to English. Keep the tone and meaning.
 - **GUI:** WebView2 (via WebViewToo library) — HTML/CSS/JS UI embedded in AHK window. Dark theme, `+AlwaysOnTop`, hides on close/escape
 - **AHK↔JS communication:** existing WebView bridge still exists for window controls, clipboard actions, and fallback request paths
 - **Backend transport:** local HTTP on `http://127.0.0.1:8765` with JSON + SSE
-- **Fallback behavior:** if Bun is not installed or the backend is unavailable, the app still works through the older direct AHK provider path
+- **Packaged storage:** compiled builds seed config from the install bundle, then use `%LocalAppData%\AI Assistant` for prompts, settings, keys, and data
+- **Fallback behavior:** in source mode, if Bun is unavailable, the app still works through the older direct AHK provider path
 
 ## Hybrid Bun backend
 
-The Bun sidecar is optional, but the app now prefers it automatically when `bun` is available on `PATH`.
+In source mode, the app prefers the Bun sidecar automatically when `bun` is available on `PATH`. Packaged builds can also ship a bundled `bin\bun.exe`.
 
 What it does now:
 

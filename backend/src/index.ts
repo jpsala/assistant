@@ -19,6 +19,9 @@ type PromptRecord = {
 type SettingsSnapshot = {
   provider: Provider;
   providerLabel: string;
+  configured: boolean;
+  appMode: string;
+  storageRoot: string;
   currentModel: string;
   model_openrouter: string;
   model_openai: string;
@@ -64,6 +67,8 @@ type ConversationSnapshot = {
 };
 
 const ROOT_DIR = resolve(import.meta.dir, "..", "..");
+const APP_MODE = process.env.AI_ASSISTANT_APP_MODE || "source";
+const STORAGE_ROOT = process.env.AI_ASSISTANT_STORAGE_DIR || ROOT_DIR;
 const SETTINGS_FILE = process.env.AI_ASSISTANT_SETTINGS_FILE || join(ROOT_DIR, "settings.conf");
 const MODEL_CONFIG_FILE = process.env.AI_ASSISTANT_MODEL_FILE || join(ROOT_DIR, "model.conf");
 const ENV_FILE = process.env.AI_ASSISTANT_ENV_FILE || join(ROOT_DIR, ".env");
@@ -238,6 +243,9 @@ async function settingsSnapshot(): Promise<SettingsSnapshot> {
   return {
     provider: config.provider,
     providerLabel: providerLabel(config.provider),
+    configured: Object.values(config.keys).some((value) => String(value || "").trim() !== ""),
+    appMode: APP_MODE,
+    storageRoot: STORAGE_ROOT,
     currentModel: modelForProvider(config.settings, config.env, config.provider),
     model_openrouter: modelForProvider(config.settings, config.env, "openrouter"),
     model_openai: modelForProvider(config.settings, config.env, "openai"),
@@ -248,6 +256,37 @@ async function settingsSnapshot(): Promise<SettingsSnapshot> {
     anthropicKey: config.keys.anthropic,
     xaiKey: config.keys.xai,
     maxTokens: config.maxTokens,
+  };
+}
+
+async function validateProviderConnection(providerInput: string, apiKeyInput: string) {
+  const provider = normalizeProvider(providerInput);
+  const apiKey = String(apiKeyInput || "").trim();
+  if (!apiKey) {
+    throw new Error(`Missing API key for ${providerLabel(provider)}`);
+  }
+
+  const response = await fetch(buildModelsUrl(provider), {
+    headers: providerHeaders(provider, apiKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+  }
+
+  const payload: any = await response.json();
+  const items = Array.isArray(payload?.data) ? payload.data : [];
+  const models = items.slice(0, 8).map((item: any) => ({
+    id: String(item?.id || ""),
+    name: String(item?.name || item?.display_name || item?.id || ""),
+  }));
+
+  return {
+    ok: true,
+    provider,
+    providerLabel: providerLabel(provider),
+    modelCount: items.length,
+    models,
   };
 }
 
@@ -934,6 +973,15 @@ async function handleRequest(request: Request): Promise<Response> {
         xaiKey?: string;
       }>(request);
       return json(await saveApiKeys(body));
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
+  if (url.pathname === "/v1/setup/validate" && request.method === "POST") {
+    try {
+      const body = await requestBody<{ provider?: string; apiKey?: string }>(request);
+      return json(await validateProviderConnection(String(body.provider || ""), String(body.apiKey || "")));
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
     }
