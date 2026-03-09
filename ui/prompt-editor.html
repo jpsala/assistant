@@ -355,6 +355,7 @@
   let allModels = [];          // [{id, name}, ...]
   let filteredModels = [];
   let modelActiveIdx = -1;
+  const backendBaseUrl = 'http://127.0.0.1:8765';
 
   // =============================================
   // DOM REFS
@@ -418,6 +419,33 @@
 
   function sendToAHK(action, data = {}) {
     postToAHK({ action, ...data });
+  }
+
+  async function fetchJson(path, options = {}) {
+    const response = await fetch(backendBaseUrl + path, options);
+    let payload = {};
+    try {
+      payload = await response.json();
+    } catch (e) {}
+    if (!response.ok) {
+      throw new Error(payload && payload.error ? payload.error : `HTTP ${response.status}`);
+    }
+    return payload;
+  }
+
+  async function loadPromptCatalog() {
+    const payload = await fetchJson('/v1/prompts');
+    setPrompts(payload.prompts || []);
+  }
+
+  async function loadSettingsSnapshot() {
+    const payload = await fetchJson('/v1/settings');
+    setDefaultProvider(payload.provider || 'openrouter');
+  }
+
+  async function loadModelsForProvider(provider) {
+    const payload = await fetchJson('/v1/models?provider=' + encodeURIComponent(provider || defaultProvider));
+    setModels(payload.models || []);
   }
 
   // =============================================
@@ -595,7 +623,9 @@
     btnDelete.disabled = false;
 
     const effectiveProvider = providerInput.value || defaultProvider;
-    sendToAHK('providerChanged', { provider: effectiveProvider });
+    loadModelsForProvider(effectiveProvider).catch((error) => {
+      setStatus('Error loading models: ' + error.message);
+    });
 
     if (p.isFile) {
       promptText.readOnly = true;
@@ -651,7 +681,9 @@
   // =============================================
   providerInput.addEventListener('change', () => {
     const effectiveProvider = providerInput.value || defaultProvider;
-    sendToAHK('providerChanged', { provider: effectiveProvider });
+    loadModelsForProvider(effectiveProvider).catch((error) => {
+      setStatus('Error loading models: ' + error.message);
+    });
   });
 
   function renderModelDropdown() {
@@ -737,10 +769,67 @@
       items[idx].scrollIntoView({ block: 'nearest' });
   }
 
+  async function savePromptToBackend() {
+    const newName = nameInput.value.trim();
+    if (!newName) {
+      setStatus('Name cannot be empty');
+      return;
+    }
+
+    const payload = await fetchJson('/v1/prompts', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        oldName: selectedName || '',
+        name: newName,
+        prompt: promptText.value,
+        provider: providerInput.value.trim(),
+        model: modelInput.value.trim(),
+        hotkey: hotkeyInput.dataset.ahkKey || '',
+        confirm: !!confirmInput.checked
+      })
+    });
+
+    setPrompts(payload.prompts || []);
+    onSaved(newName);
+    sendToAHK('promptsChanged');
+  }
+
+  async function deletePromptFromBackend() {
+    if (!selectedName) {
+      return;
+    }
+
+    const payload = await fetchJson('/v1/prompts/' + encodeURIComponent(selectedName), {
+      method: 'DELETE'
+    });
+
+    setPrompts(payload.prompts || []);
+    selectedName = '';
+    isFilePrompt = false;
+    nameInput.value = '';
+    providerInput.value = '';
+    modelInput.value = '';
+    hotkeyInput.dataset.ahkKey = '';
+    hotkeyInput.value = '';
+    confirmInput.checked = false;
+    promptText.value = '';
+    promptText.readOnly = false;
+    promptText.classList.remove('readonly');
+    fileIndicator.innerHTML = '';
+    btnDelete.disabled = true;
+    setStatus('Deleted: ' + payload.deleted);
+    sendToAHK('promptsChanged');
+  }
+
   // =============================================
   // BUTTONS
   // =============================================
-  document.getElementById('btn-save').addEventListener('click', () => sendToAHK('savePrompt'));
+  document.getElementById('btn-save').addEventListener('click', () => {
+    savePromptToBackend().catch((error) => {
+      setStatus('Error saving prompt: ' + error.message);
+    });
+  });
   document.getElementById('btn-new').addEventListener('click', () => {
     selectedName = '';
     isFilePrompt = false;
@@ -755,13 +844,17 @@
     promptText.classList.remove('readonly');
     fileIndicator.innerHTML = '';
     btnDelete.disabled = true;
-    sendToAHK('providerChanged', { provider: defaultProvider });
+    loadModelsForProvider(defaultProvider).catch((error) => {
+      setStatus('Error loading models: ' + error.message);
+    });
     nameInput.focus();
     statusEl.textContent = 'New prompt — enter a name and text';
   });
   document.getElementById('btn-delete').addEventListener('click', () => {
     if (selectedName && confirm('Delete "' + selectedName + '"?'))
-      sendToAHK('deletePrompt');
+      deletePromptFromBackend().catch((error) => {
+        setStatus('Error deleting prompt: ' + error.message);
+      });
   });
   document.getElementById('btn-close').addEventListener('click', () => sendToAHK('close'));
 
@@ -772,7 +865,9 @@
     if (recordingHotkey) return;  // Let the hotkey input handle keys while recording
     if (e.ctrlKey && e.key === 's') {
       e.preventDefault();
-      sendToAHK('savePrompt');
+      savePromptToBackend().catch((error) => {
+        setStatus('Error saving prompt: ' + error.message);
+      });
     }
     const anyDropdownOpen = promptDropdown.classList.contains('visible')
                          || modelDropdown.classList.contains('visible');
@@ -787,6 +882,11 @@
   // =============================================
   document.addEventListener('DOMContentLoaded', () => {
     initWindowUI();
+    loadSettingsSnapshot()
+      .then(() => loadPromptCatalog())
+      .then(() => loadModelsForProvider(defaultProvider))
+      .then(() => setStatus('Prompts loaded'))
+      .catch((error) => setStatus('Error loading editor data: ' + error.message));
     sendToAHK('ready');
   });
 </script>

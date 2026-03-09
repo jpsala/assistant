@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { watch as watchFs } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -13,6 +13,7 @@ type PromptRecord = {
   confirm: boolean;
   path: string;
   updatedAt: string;
+  isFile: boolean;
 };
 
 type ConversationSnapshot = {
@@ -32,11 +33,11 @@ type ConversationSnapshot = {
 };
 
 const ROOT_DIR = resolve(import.meta.dir, "..", "..");
-const SETTINGS_FILE = join(ROOT_DIR, "settings.conf");
-const MODEL_CONFIG_FILE = join(ROOT_DIR, "model.conf");
-const ENV_FILE = join(ROOT_DIR, ".env");
-const PROMPTS_DIR = join(ROOT_DIR, "prompts");
-const DATA_DIR = join(ROOT_DIR, "data");
+const SETTINGS_FILE = process.env.AI_ASSISTANT_SETTINGS_FILE || join(ROOT_DIR, "settings.conf");
+const MODEL_CONFIG_FILE = process.env.AI_ASSISTANT_MODEL_FILE || join(ROOT_DIR, "model.conf");
+const ENV_FILE = process.env.AI_ASSISTANT_ENV_FILE || join(ROOT_DIR, ".env");
+const PROMPTS_DIR = process.env.AI_ASSISTANT_PROMPTS_DIR || join(ROOT_DIR, "prompts");
+const DATA_DIR = process.env.AI_ASSISTANT_DATA_DIR || join(ROOT_DIR, "data");
 const CONVERSATIONS_DIR = join(DATA_DIR, "conversations");
 const PORT = Number(process.env.AI_ASSISTANT_BACKEND_PORT || "8765");
 const HOST = process.env.AI_ASSISTANT_BACKEND_HOST || "127.0.0.1";
@@ -603,11 +604,110 @@ async function listPrompts(): Promise<PromptRecord[]> {
       confirm,
       path: filePath,
       updatedAt: fileStat.mtime.toISOString(),
+      isFile: false,
     });
   }
 
   prompts.sort((left, right) => left.name.localeCompare(right.name));
   return prompts;
+}
+
+function sanitizePromptFileName(promptName: string): string {
+  return String(promptName || "")
+    .trim()
+    .replace(/[<>:"/\\|?*\x00-\x1f]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-.\s]+|[-.\s]+$/g, "");
+}
+
+function buildPromptFileContent(prompt: {
+  name: string;
+  prompt: string;
+  provider?: string;
+  model?: string;
+  hotkey?: string;
+  confirm?: boolean;
+}): string {
+  const lines = [`@name:${prompt.name}`];
+  if (prompt.provider) {
+    lines.push(`@provider:${prompt.provider}`);
+  }
+  if (prompt.model) {
+    lines.push(`@model:${prompt.model}`);
+  }
+  if (prompt.hotkey) {
+    lines.push(`@hotkey:${prompt.hotkey}`);
+  }
+  if (prompt.confirm) {
+    lines.push("@confirm:true");
+  }
+  lines.push("");
+  lines.push(prompt.prompt || "");
+  return `${lines.join("\n").trimEnd()}\n`;
+}
+
+async function savePromptRecord(input: {
+  oldName?: string;
+  name?: string;
+  prompt?: string;
+  provider?: string;
+  model?: string;
+  hotkey?: string;
+  confirm?: boolean;
+}) {
+  await mkdir(PROMPTS_DIR, { recursive: true });
+  const prompts = await listPrompts();
+  const oldName = String(input.oldName || "").trim();
+  const name = String(input.name || "").trim();
+
+  if (!name) {
+    throw new Error("Name cannot be empty");
+  }
+
+  const existing = prompts.find((prompt) => prompt.name === name);
+  if (existing && existing.name !== oldName) {
+    throw new Error(`A prompt named "${name}" already exists`);
+  }
+
+  const current = oldName ? prompts.find((prompt) => prompt.name === oldName) : undefined;
+  let targetPath = current?.path;
+  if (!targetPath || oldName !== name) {
+    const fileBase = sanitizePromptFileName(name) || "prompt";
+    targetPath = join(PROMPTS_DIR, `${fileBase}.md`);
+    if (existing?.path) {
+      targetPath = existing.path;
+    }
+  }
+
+  await writeFile(
+    targetPath,
+    buildPromptFileContent({
+      name,
+      prompt: String(input.prompt || ""),
+      provider: String(input.provider || "").trim(),
+      model: String(input.model || "").trim(),
+      hotkey: String(input.hotkey || "").trim(),
+      confirm: !!input.confirm,
+    }),
+    "utf8",
+  );
+
+  if (current?.path && current.path !== targetPath) {
+    await unlink(current.path).catch(() => {});
+  }
+
+  return (await listPrompts()).find((prompt) => prompt.name === name);
+}
+
+async function deletePromptRecord(name: string) {
+  const prompts = await listPrompts();
+  const target = prompts.find((prompt) => prompt.name === name);
+  if (!target) {
+    throw new Error(`Prompt not found: ${name}`);
+  }
+  await unlink(target.path);
+  return { deleted: name };
 }
 
 async function saveConversation(snapshot: ConversationSnapshot) {
@@ -849,6 +949,23 @@ async function handleRequest(request: Request): Promise<Response> {
     return json({ prompts: await listPrompts() });
   }
 
+  if (url.pathname === "/v1/prompts" && request.method === "PUT") {
+    try {
+      const body = await requestBody<{
+        oldName?: string;
+        name?: string;
+        prompt?: string;
+        provider?: string;
+        model?: string;
+        hotkey?: string;
+        confirm?: boolean;
+      }>(request);
+      return json({ prompt: await savePromptRecord(body), prompts: await listPrompts() });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, { status: 400 });
+    }
+  }
+
   if (url.pathname === "/v1/prompts/watch" && request.method === "GET") {
     const stream = new ReadableStream<string>({
       async start(controller) {
@@ -868,6 +985,15 @@ async function handleRequest(request: Request): Promise<Response> {
         "access-control-allow-origin": "*",
       },
     });
+  }
+
+  if (url.pathname.startsWith("/v1/prompts/") && request.method === "DELETE") {
+    const name = decodeURIComponent(url.pathname.slice("/v1/prompts/".length));
+    try {
+      return json({ ...(await deletePromptRecord(name)), prompts: await listPrompts() });
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : String(error) }, { status: 404 });
+    }
   }
 
   if (url.pathname === "/v1/conversations" && request.method === "GET") {

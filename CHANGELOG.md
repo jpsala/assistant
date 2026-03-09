@@ -10,6 +10,7 @@ All notable changes to AI Assistant are documented in this file.
 - Prompt Chat session persistence under `data/conversations/*.json`
 - Prompt Chat history panel for reopening recent saved sessions from the UI
 - Local backend validation tooling via `package.json`, `tsconfig.json`, `bun.lock`, TypeScript, and Bun type definitions
+- Checked-in backend smoke test covering settings, prompt CRUD, and conversation persistence
 - `@confirm` directive for hotkey prompts: shows a pre-run dialog letting you review and edit both the prompt text and the input text before the API call is made. Add `@confirm:true` in a prompt file or toggle the new checkbox in the Prompt Editor.
 - "Manual" built-in prompt (hotkey `Alt+T,T`) as an empty `@confirm` prompt for ad-hoc one-off requests without opening the main window.
 - Prompt Editor: "Confirm prompt before running by hotkey" checkbox; saved/loaded from prompt files and shown as a "Confirm" tag in the prompt list.
@@ -18,6 +19,7 @@ All notable changes to AI Assistant are documented in this file.
 - `lib/api.ahk` now prefers the local Bun backend automatically and falls back to the legacy direct AHK provider path if the backend is unavailable
 - Settings provider/model/API key persistence now goes through Bun backend endpoints instead of direct AHK-only writes
 - Settings WebView now fetches/saves provider, model, and API key state directly against Bun instead of routing those actions through AHK
+- Prompt Editor WebView now fetches/saves prompt data and models directly against Bun instead of routing prompt CRUD through AHK
 - Prompt Chat hotkey now captures active selection into a fresh session
 - Prompt Chat send behavior now favors `Enter` to send and `Shift+Enter` for newline
 - Repository docs now describe the hybrid AHK + Bun architecture instead of an AHK-only app

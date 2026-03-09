@@ -5,7 +5,8 @@
   "scripts": {
     "backend:start": "bun backend/src/index.ts",
     "backend:dev": "bun --watch backend/src/index.ts",
-    "backend:check": "bun run backend/src/index.ts --check"
+    "backend:check": "bun run backend/src/index.ts --check",
+    "backend:smoke": "bun backend/src/smoke-test.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.10",

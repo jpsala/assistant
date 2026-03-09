@@ -952,8 +952,6 @@ ShowPromptEditor() {
         x := ml + (mr - ml - curW) // 2
         y := mt + (mb - mt - curH) // 3
         editorGui.Show("x" . x . " y" . y)
-        if (editorReady)
-            SendPromptsToEditor()
         ScheduleWindowFocus("editor", editorGui, editorReady ? "document.getElementById('prompt-filter').focus()" : "", 1200)
         return
     }
@@ -992,16 +990,7 @@ HandleEditorAction(action, rawJson := "") {
         ; Defensive restore in case recording mode previously suspended hotkeys.
         ResumeDynamicHotkeys()
         ResumePromptHotkeys()
-        SendPromptsToEditor()
-        editorGui.ExecuteScriptAsync('setDefaultProvider("' . EscJson(API_PROVIDER) . '")')
-        SendModelsToEditor(API_PROVIDER)
         ScheduleWindowFocus("editor", editorGui, "document.getElementById('prompt-filter').focus()", 800)
-
-    case "providerChanged":
-        selectedProvider := ExtractJsonString(rawJson, "provider")
-        if (selectedProvider = "")
-            selectedProvider := API_PROVIDER
-        SendModelsToEditor(selectedProvider)
 
     case "startRecording":
         SuspendDynamicHotkeys()
@@ -1011,116 +1000,12 @@ HandleEditorAction(action, rawJson := "") {
         ResumeDynamicHotkeys()
         ResumePromptHotkeys()
 
-    case "savePrompt":
-        ; Read fields from JS
-        newName := editorGui.ExecuteScript("document.getElementById('prompt-name').value")
-        newProvider := editorGui.ExecuteScript("document.getElementById('prompt-provider').value")
-        newModel := editorGui.ExecuteScript("document.getElementById('prompt-model').value")
-        newText := editorGui.ExecuteScript("document.getElementById('prompt-text').value")
-        newHotkey := editorGui.ExecuteScript("document.getElementById('prompt-hotkey').dataset.ahkKey || ''")
-        newConfirm := editorGui.ExecuteScript("document.getElementById('prompt-confirm').checked ? '1' : ''")
-        oldName := editorGui.ExecuteScript("selectedName")
-        isFile := editorGui.ExecuteScript("isFilePrompt")
-        if (Trim(newProvider) != "")
-            newProvider := NormalizeProvider(newProvider)
-
-        if (Trim(newName) = "") {
-            editorGui.ExecuteScriptAsync('setStatus("Name cannot be empty")')
-            return
-        }
-        ; For @file prompts, only save model/hotkey changes (text is read-only)
-        if (isFile = "true") {
-            ; Update provider/model in memory
-            if (Trim(newProvider) != "")
-                COMMAND_PROVIDERS[newName] := Trim(newProvider)
-            else if COMMAND_PROVIDERS.Has(newName)
-                COMMAND_PROVIDERS.Delete(newName)
-            if (Trim(newModel) != "")
-                COMMAND_MODELS[newName] := Trim(newModel)
-            else if COMMAND_MODELS.Has(newName)
-                COMMAND_MODELS.Delete(newName)
-            ; Update hotkey in memory
-            if (Trim(newHotkey) != "")
-                COMMAND_HOTKEYS[newName] := Trim(newHotkey)
-            else if COMMAND_HOTKEYS.Has(newName)
-                COMMAND_HOTKEYS.Delete(newName)
-            if (newConfirm != "")
-                COMMAND_CONFIRMS[newName] := true
-            else if COMMAND_CONFIRMS.Has(newName)
-                COMMAND_CONFIRMS.Delete(newName)
-        } else {
-            ; Remove old name if renamed
-            if (oldName != "" && oldName != newName) {
-                if COMMAND_PROMPTS.Has(oldName)
-                    COMMAND_PROMPTS.Delete(oldName)
-                if COMMAND_MODELS.Has(oldName)
-                    COMMAND_MODELS.Delete(oldName)
-                if COMMAND_PROVIDERS.Has(oldName)
-                    COMMAND_PROVIDERS.Delete(oldName)
-                if COMMAND_HOTKEYS.Has(oldName)
-                    COMMAND_HOTKEYS.Delete(oldName)
-                if COMMAND_CONFIRMS.Has(oldName)
-                    COMMAND_CONFIRMS.Delete(oldName)
-            }
-            ; Update in memory
-            COMMAND_PROMPTS[newName] := newText
-            if (Trim(newProvider) != "")
-                COMMAND_PROVIDERS[newName] := Trim(newProvider)
-            else if COMMAND_PROVIDERS.Has(newName)
-                COMMAND_PROVIDERS.Delete(newName)
-            if (Trim(newModel) != "")
-                COMMAND_MODELS[newName] := Trim(newModel)
-            else if COMMAND_MODELS.Has(newName)
-                COMMAND_MODELS.Delete(newName)
-            if (Trim(newHotkey) != "")
-                COMMAND_HOTKEYS[newName] := Trim(newHotkey)
-            else if COMMAND_HOTKEYS.Has(newName)
-                COMMAND_HOTKEYS.Delete(newName)
-            if (newConfirm != "")
-                COMMAND_CONFIRMS[newName] := true
-            else if COMMAND_CONFIRMS.Has(newName)
-                COMMAND_CONFIRMS.Delete(newName)
-        }
-
-        ; Re-register prompt hotkeys to reflect changes
-        RegisterPromptHotkeys(COMMAND_HOTKEYS)
-
-        ; Rebuild name list
-        RebuildCommandNames()
-
-        ; Save to prompt files
-        SavePromptFiles()
-
-        ; Refresh editor and prompt UIs
-        SendPromptsToEditor()
-        editorGui.ExecuteScriptAsync('onSaved("' . EscJson(newName) . '")')
+    case "promptsChanged":
+        LoadPrompts()
+        SendCommandsToPickerUI()
+        SendCommandsToIterativeUI()
         ResumeDynamicHotkeys()
         ResumePromptHotkeys()
-        SendCommandsToPickerUI()
-        SendCommandsToIterativeUI()
-
-    case "deletePrompt":
-        delName := editorGui.ExecuteScript("selectedName")
-        if (delName = "" || !COMMAND_PROMPTS.Has(delName))
-            return
-
-        COMMAND_PROMPTS.Delete(delName)
-        if COMMAND_PROVIDERS.Has(delName)
-            COMMAND_PROVIDERS.Delete(delName)
-        if COMMAND_MODELS.Has(delName)
-            COMMAND_MODELS.Delete(delName)
-        if COMMAND_HOTKEYS.Has(delName)
-            COMMAND_HOTKEYS.Delete(delName)
-        if COMMAND_CONFIRMS.Has(delName)
-            COMMAND_CONFIRMS.Delete(delName)
-
-        RegisterPromptHotkeys(COMMAND_HOTKEYS)
-        RebuildCommandNames()
-        SavePromptFiles()
-        SendPromptsToEditor()
-        editorGui.ExecuteScriptAsync('setStatus("Deleted: ' . EscJson(delName) . '")')
-        SendCommandsToPickerUI()
-        SendCommandsToIterativeUI()
 
     case "minimize":
         StopWindowFocus("editor")
