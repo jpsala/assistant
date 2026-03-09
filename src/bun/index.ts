@@ -2,13 +2,31 @@ import { Tray } from "electrobun/bun";
 import { registerHotkey, unregisterHotkey, unregisterAll } from "./hotkeys";
 import { initPrompts, type PromptMap } from "./prompts";
 import { loadSettings, getSettings } from "./settings";
+import { silentReplace, setToastCallback, type ReplaceResult } from "./replace";
+import { handleReplaceStatus } from "./feedback";
+import { showPicker, updatePickerPrompts, initPickerServer } from "./picker";
+import { createLogger, getLogFilePath, resetLogFile } from "./logger";
+
+const log = createLogger("startup");
+resetLogFile();
+log.info("session.started", { logFile: getLogFilePath() });
 
 // ─── Boot sequence ────────────────────────────────────────────────────────────
 
 const settings = await loadSettings();
-console.log(
-  `[startup] provider=${settings.provider} model=${settings.model} onboarded=${settings.onboarded}`
-);
+
+// Toast: shown after a silent replace (real window comes later)
+setToastCallback((r: ReplaceResult) => {
+  log.info("replace.toast_ready", {
+    originalChars: r.original.length,
+    resultChars: r.result.length,
+  });
+});
+log.info("settings.loaded", {
+  provider: settings.provider,
+  model: settings.model,
+  onboarded: settings.onboarded,
+});
 
 // ─── Tray ─────────────────────────────────────────────────────────────────────
 
@@ -27,11 +45,15 @@ tray.on("tray-clicked", (event: any) => {
   const action = event.data?.action;
   switch (action) {
     case "open":
-    case "picker":
     case "settings":
-      console.log(`[tray] ${action} — window not yet implemented`);
+      log.info("tray.action_not_implemented", { action });
+      break;
+    case "picker":
+      log.info("tray.open_picker");
+      showPicker().catch((error) => log.error("tray.open_picker_failed", { error }));
       break;
     case "quit":
+      log.info("tray.quit");
       unregisterAll();
       tray.remove();
       process.exit(0);
@@ -58,14 +80,20 @@ function applyPromptHotkeys(prompts: PromptMap): void {
     if (activePromptHotkeys.has(name)) unregisterHotkey(key);
 
     const ok = registerHotkey(key, prompt.hotkey, () => {
-      console.log(`[hotkey] "${name}" triggered`);
-      // TODO: silent replace flow
+      log.info("prompt.hotkey_triggered", { name, hotkey: prompt.hotkey });
+      if (prompt.confirm) {
+        log.info("prompt.confirm_not_implemented", { name });
+        return;
+      }
+      silentReplace(prompt, { onStatus: handleReplaceStatus }).catch((e) =>
+        log.error("prompt.replace_failed", { name, error: e })
+      );
     });
 
     if (ok) {
       activePromptHotkeys.add(name);
     } else {
-      console.warn(`[prompts] failed to register hotkey "${prompt.hotkey}" for "${name}"`);
+      log.warn("prompt.hotkey_register_failed", { name, hotkey: prompt.hotkey });
     }
   }
 }
@@ -75,19 +103,29 @@ function applyPromptHotkeys(prompts: PromptMap): void {
 const cfg = getSettings();
 
 registerHotkey("promptChat", cfg.hotkeys.promptChat, () => {
-  console.log("[hotkey] promptChat → open chat window");
-  // TODO: open chat window
+  log.info("hotkey.prompt_chat_triggered");
 });
 
 registerHotkey("promptPicker", cfg.hotkeys.promptPicker, () => {
-  console.log("[hotkey] promptPicker → open picker");
-  // TODO: open picker window
+  log.info("hotkey.prompt_picker_triggered");
+  showPicker().catch((error) => log.error("hotkey.prompt_picker_failed", { error }));
 });
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
 const prompts = await initPrompts((updated) => {
   applyPromptHotkeys(updated);
+  updatePickerPrompts(updated);
 });
 
-console.log(`[startup] Assistant running — ${prompts.size} prompts loaded`);
+applyPromptHotkeys(prompts);
+updatePickerPrompts(prompts);
+
+// Start the picker HTTP server now.
+await initPickerServer();
+
+// Keep the Bun event loop alive indefinitely.
+// Without this, Bun may drain the event loop and exit even with active servers.
+setInterval(() => {}, 2 ** 30);
+
+log.info("app.ready", { promptCount: prompts.size });

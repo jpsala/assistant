@@ -9,6 +9,9 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { USER_DATA_DIR } from "./prompts";
 import type { Provider } from "./prompts";
+import { createLogger } from "./logger";
+
+const log = createLogger("settings");
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,7 +141,7 @@ async function migrateFromEnv(): Promise<void> {
 
       if (Object.keys(patch).length > 0) {
         _settings = deepMerge(DEFAULTS, patch) as Settings;
-        console.log(`[settings] migrated keys from ${envPath}`);
+        log.info("migrated_from_env", { envPath });
       }
       break;
     } catch {

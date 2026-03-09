@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Prompt Picker</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html, body {
+        height: 100%;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at top left, rgba(120, 119, 198, 0.18), transparent 34%),
+          linear-gradient(180deg, #17192b, #111322 72%);
+        color: #e0e0f0;
+        font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+        font-size: 14px;
+      }
+
+      /* ── Search bar ── */
+      #search-wrapper {
+        padding: 14px 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        position: relative;
+      }
+
+      #search-wrapper::before {
+        content: "⌕";
+        position: absolute;
+        left: 28px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: rgba(255, 255, 255, 0.3);
+        font-size: 18px;
+        pointer-events: none;
+      }
+
+      #search {
+        width: 100%;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 16px;
+        padding: 9px 12px 9px 36px;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+
+      #search:focus {
+        border-color: rgba(139, 92, 246, 0.6);
+        background: rgba(255, 255, 255, 0.09);
+      }
+
+      #search::placeholder {
+        color: rgba(255, 255, 255, 0.25);
+      }
+
+      /* ── List ── */
+      #list {
+        overflow-y: auto;
+        max-height: calc(100vh - 65px);
+        padding: 6px 0;
+      }
+
+      #list::-webkit-scrollbar {
+        width: 4px;
+      }
+
+      #list::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      #list::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 2px;
+      }
+
+      /* ── Item ── */
+      .item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 16px;
+        cursor: pointer;
+        border-radius: 6px;
+        margin: 1px 6px;
+        transition: background 0.1s;
+      }
+
+      .item:hover {
+        background: rgba(139, 92, 246, 0.18);
+      }
+
+      .item.selected {
+        background: rgba(139, 92, 246, 0.35);
+      }
+
+      .item-name {
+        flex: 1;
+        font-size: 14px;
+        font-weight: 500;
+        color: #e8e8f8;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .item-category {
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.08);
+        color: rgba(255, 255, 255, 0.45);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .item-hotkey {
+        font-size: 11px;
+        font-family: "Consolas", "Fira Mono", monospace;
+        color: rgba(255, 255, 255, 0.28);
+        white-space: nowrap;
+        flex-shrink: 0;
+        letter-spacing: 0.02em;
+      }
+
+      /* ── Empty state ── */
+      #empty {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.25);
+        padding: 48px 24px;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      /* ── Busy overlay ── */
+      #busy {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: rgba(9, 11, 20, 0.58);
+        backdrop-filter: blur(16px);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.16s ease;
+      }
+
+      #busy.visible {
+        opacity: 1;
+      }
+
+      .busy-card {
+        width: min(420px, calc(100vw - 36px));
+        padding: 18px 18px 16px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background:
+          radial-gradient(circle at top right, rgba(139, 92, 246, 0.2), transparent 34%),
+          rgba(10, 14, 28, 0.82);
+        box-shadow: 0 24px 48px rgba(0, 0, 0, 0.34);
+      }
+
+      .busy-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        color: rgba(225, 232, 255, 0.8);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .busy-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #8b5cf6;
+        box-shadow: 0 0 14px rgba(139, 92, 246, 0.8);
+        animation: pulse 1s ease-in-out infinite;
+      }
+
+      .busy-title {
+        margin-top: 14px;
+        color: #f5f7ff;
+        font-size: 18px;
+        font-weight: 700;
+      }
+
+      .busy-meta {
+        margin-top: 6px;
+        color: rgba(220, 227, 247, 0.68);
+        font-size: 13px;
+      }
+
+      .busy-bar {
+        margin-top: 16px;
+        height: 4px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+
+      .busy-bar::after {
+        content: "";
+        display: block;
+        width: 34%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, rgba(139, 92, 246, 0.2), #8b5cf6, rgba(255, 255, 255, 0.24));
+        animation: sweep 1.15s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { transform: scale(1); opacity: 0.72; }
+        50% { transform: scale(1.18); opacity: 1; }
+      }
+
+      @keyframes sweep {
+        0% { transform: translateX(-18%); }
+        50% { transform: translateX(205%); }
+        100% { transform: translateX(-18%); }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="search-wrapper">
+      <input
+        id="search"
+        type="text"
+        placeholder="Search prompts…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+    <div id="list"></div>
+    <div id="empty" style="display: none">No prompts found</div>
+    <div id="busy" aria-hidden="true">
+      <div class="busy-card">
+        <div class="busy-chip">
+          <span class="busy-dot"></span>
+          Processing
+        </div>
+        <div class="busy-title" id="busy-title">Running prompt</div>
+        <div class="busy-meta" id="busy-meta">Capturing selection and sending it to the model</div>
+        <div class="busy-bar"></div>
+      </div>
+    </div>
+
+    <script type="module" src="index.ts"></script>
+  </body>
+</html>

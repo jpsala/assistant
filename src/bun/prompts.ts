@@ -22,6 +22,9 @@
 import { join, resolve } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 import { watch, type FSWatcher } from "node:fs";
+import { createLogger } from "./logger";
+
+const log = createLogger("prompts");
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,7 +105,7 @@ async function seedStarterPrompts(): Promise<void> {
     if (!existsSync(dest)) {
       const src = join(STARTER_PROMPTS_DIR, file);
       await Bun.write(dest, Bun.file(src));
-      console.log(`[prompts] seeded ${file}`);
+      log.info("seeded", { file });
     }
   }
 }
@@ -121,7 +124,7 @@ async function loadAllPrompts(): Promise<PromptMap> {
       const prompt = parsePromptFile(filePath, content);
       map.set(prompt.name, prompt);
     } catch (e) {
-      console.error(`[prompts] failed to load ${file}:`, e);
+      log.error("load_failed", { file, error: e });
     }
   }
   return map;
@@ -144,7 +147,7 @@ export async function initPrompts(onChange: ChangeCallback): Promise<PromptMap> 
 
   const reload = async () => {
     currentPrompts = await loadAllPrompts();
-    console.log(`[prompts] reloaded — ${currentPrompts.size} prompts`);
+    log.info("reloaded", { promptCount: currentPrompts.size });
     onChange(currentPrompts);
   };
 
@@ -153,9 +156,10 @@ export async function initPrompts(onChange: ChangeCallback): Promise<PromptMap> 
     debounceTimer = setTimeout(reload, 150);
   });
 
-  console.log(
-    `[prompts] ${currentPrompts.size} prompts loaded from ${PROMPTS_DIR}`
-  );
+  log.info("loaded", {
+    promptCount: currentPrompts.size,
+    directory: PROMPTS_DIR,
+  });
   return currentPrompts;
 }
 
