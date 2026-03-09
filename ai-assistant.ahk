@@ -415,53 +415,6 @@ HandleSettingsAction(action, rawJson) {
     }
 }
 
-FetchAndSendModels() {
-    global settingsGui, API_PROVIDER
-    provider := API_PROVIDER
-    apiKey := GetProviderApiKey(provider)
-
-    if (apiKey = "") {
-        settingsGui.ExecuteScriptAsync("setModels([])")
-        settingsGui.ExecuteScriptAsync('setStatus("Missing API key for ' . EscJson(ProviderDisplayName(provider)) . '")')
-        return
-    }
-
-    try {
-        modelsJson := FetchModels(provider, apiKey)
-        settingsGui.ExecuteScriptAsync("setModels(" . modelsJson . ")")
-        settingsGui.ExecuteScriptAsync('setStatus("Loaded models for ' . EscJson(ProviderDisplayName(provider)) . '")')
-    } catch as e {
-        settingsGui.ExecuteScriptAsync('setStatus("Error loading models: ' . EscJson(e.Message) . '")')
-    }
-}
-
-SendApiKeysToSettings() {
-    global settingsGui, API_KEYS
-    json := '{'
-        . '"openrouter":"' . EscJson(API_KEYS["openrouter"]) . '",'
-        . '"openai":"' . EscJson(API_KEYS["openai"]) . '",'
-        . '"anthropic":"' . EscJson(API_KEYS["anthropic"]) . '",'
-        . '"xai":"' . EscJson(API_KEYS["xai"]) . '"'
-        . '}'
-    settingsGui.ExecuteScriptAsync("setApiKeys(" . json . ")")
-}
-
-SendHotkeysToSettings() {
-    global settingsGui, HOTKEY_MAP, HOTKEY_LABELS
-    ; Build JSON: [{id, label, ahkKey}, ...]
-    json := "["
-    first := true
-    for actionId, ahkKey in HOTKEY_MAP {
-        if !first
-            json .= ","
-        label := HOTKEY_LABELS.Has(actionId) ? HOTKEY_LABELS[actionId] : actionId
-        json .= '{"id":"' . EscJson(actionId) . '","label":"' . EscJson(label) . '","ahkKey":"' . EscJson(ahkKey) . '"}'
-        first := false
-    }
-    json .= "]"
-    settingsGui.ExecuteScriptAsync("setHotkeys(" . json . ")")
-}
-
 GetAutostart() {
     try {
         val := RegRead("HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "ai-assistant")

@@ -32,6 +32,7 @@ All notable changes to AI Assistant are documented in this file.
 - Prompt Editor "save" no longer rejects empty prompt text (allows `@confirm` prompts with no default body).
 - Opening or saving a prompt in the Prompt Editor defensively calls `ResumeDynamicHotkeys` / `ResumePromptHotkeys` to recover any suspended hotkeys.
 - Prompt storage now uses `prompts/*.md` as the source of truth, with one prompt per file and legacy `prompts.json` automatically migrated on load.
+- Settings window visual overhaul: card-style sections, CSS toggle switch, compact scrollbar, better typography and focus rings.
 
 ### Added
 - Resizable windows: WM_NCHITTEST handler creates virtual 6px grab borders on all three resizable windows (main, settings, prompt editor), restoring drag-to-resize after `-Caption` removed native OS borders
@@ -40,19 +41,6 @@ All notable changes to AI Assistant are documented in this file.
 - Settings: "General" section with Windows autostart toggle and max tokens input
 - Settings: eye button on each API key field to reveal/hide the value
 - Settings: max tokens saved immediately on field commit
-
-### Changed
-- Settings window visual overhaul: card-style sections, CSS toggle switch, compact scrollbar, better typography and focus rings
-
-### Fixed
-- Tray icon click flow now distinguishes single-click menu behavior from double-click Prompt Chat open behavior
-- Command input label now shows the actual configured hotkey instead of the hardcoded "(Alt+J)"; updates live when changed in Settings
-- Settings close handler now saves size on both JS-close and Alt+F4 paths
-- Settings size written atomically (single file write via SaveSettingBatch)
-- Main window and Prompt Editor Close handlers explicitly return 1 to prevent any default action
-- Settings AHK Close handler (SaveSettingsSize) returns 1 to prevent redundant default hide
-
-### Added
 - All windows (main, picker, settings, prompt editor) now open on the monitor containing the active window, centered horizontally and at 1/3 from the top
 - Prompt Picker: configurable hotkey (in Settings) that opens a filterable spotlight-style popup with all prompts; selecting one silently processes selected text or clipboard and replaces/pastes the result.
 - Per-prompt hotkeys: assign a hotkey to any command in the Prompt Editor; pressing it silently processes selected text (or clipboard content) and replaces/pastes the result without opening any window. Feedback via tooltip. Original clipboard is restored after the operation.
@@ -61,6 +49,12 @@ All notable changes to AI Assistant are documented in this file.
 - Build script (`build.bat`) — compiles to exe and creates dist/ folder with all runtime files
 
 ### Fixed
+- Tray icon click flow now distinguishes single-click menu behavior from double-click Prompt Chat open behavior
+- Command input label now shows the actual configured hotkey instead of the hardcoded "(Alt+J)"; updates live when changed in Settings
+- Settings close handler now saves size on both JS-close and Alt+F4 paths
+- Settings size written atomically (single file write via SaveSettingBatch)
+- Main window and Prompt Editor Close handlers explicitly return 1 to prevent any default action
+- Settings AHK Close handler (SaveSettingsSize) returns 1 to prevent redundant default hide
 - Prompt editor hotkey field showing garbled value (e.g. "Alt+Shift+c\n@model:...") due to malformed escape sequences in prompts.json
 - `EscJsonFile` writing standard JSON `\n` (2 chars) instead of `\\n` (3 chars) required by `LoadPrompts`, causing directive parsing failures after any save from the editor
 
