@@ -5,7 +5,7 @@ type Settings = {
   model: string;
   apiKeys: Record<Provider, string>;
   maxTokens: number;
-  feedbackStyle: "custom" | "windows" | "native";
+  feedbackStyle: "custom";
   hotkeys: {
     promptChat: string;
     promptPicker: string;
@@ -38,7 +38,6 @@ const modelHint = document.getElementById("model-hint")!;
 const saveButton = document.getElementById("save") as HTMLButtonElement;
 const statusEl = document.getElementById("status")!;
 const maxTokens = document.getElementById("maxTokens") as HTMLInputElement;
-const feedbackStyle = document.getElementById("feedbackStyle") as HTMLSelectElement;
 const promptChat = document.getElementById("promptChat") as HTMLInputElement;
 const promptPicker = document.getElementById("promptPicker") as HTMLInputElement;
 const reloadHotkey = document.getElementById("reloadHotkey") as HTMLInputElement;
@@ -88,7 +87,7 @@ function getDraftSettings(): Settings {
       xai: apiKeyInputs.xai.value,
     },
     maxTokens: Number(maxTokens.value),
-    feedbackStyle: feedbackStyle.value as Settings["feedbackStyle"],
+    feedbackStyle: "custom",
     hotkeys: {
       promptChat: promptChat.value,
       promptPicker: promptPicker.value,
@@ -164,7 +163,6 @@ function applySettings(settings: Settings) {
   currentSettings = settings;
   providerSelect.value = settings.provider;
   maxTokens.value = String(settings.maxTokens);
-  feedbackStyle.value = settings.feedbackStyle;
   promptChat.value = settings.hotkeys.promptChat;
   promptPicker.value = settings.hotkeys.promptPicker;
   reloadHotkey.value = settings.hotkeys.reload;

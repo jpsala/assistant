@@ -57,10 +57,7 @@ function sanitizeSettings(input: Settings): Settings {
   return {
     provider: input.provider,
     model: input.model.trim(),
-    feedbackStyle:
-      input.feedbackStyle === "windows" || input.feedbackStyle === "native"
-        ? input.feedbackStyle
-        : "custom",
+    feedbackStyle: "custom",
     apiKeys: {
       openrouter: input.apiKeys.openrouter.trim(),
       openai: input.apiKeys.openai.trim(),

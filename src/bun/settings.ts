@@ -21,7 +21,7 @@ export type Settings = {
   model: string;
   apiKeys: Record<Provider, string>;
   maxTokens: number;
-  feedbackStyle: "custom" | "windows" | "native";
+  feedbackStyle: "custom";
 
   // System hotkeys
   hotkeys: {
@@ -86,6 +86,11 @@ export async function loadSettings(): Promise<Settings> {
     _settings = deepMerge(DEFAULTS, parsed) as Settings;
   } catch {
     _settings = structuredClone(DEFAULTS);
+  }
+
+  if (_settings.feedbackStyle !== "custom") {
+    _settings.feedbackStyle = "custom";
+    await Bun.write(SETTINGS_PATH, JSON.stringify(_settings, null, 2));
   }
 
   return _settings;

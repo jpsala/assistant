@@ -1,7 +1,5 @@
-import { Utils } from "electrobun/bun";
 import type { ReplaceStatus } from "./replace";
 import { createLogger } from "./logger";
-import { getSettings } from "./settings";
 
 const log = createLogger("feedback");
 
@@ -24,32 +22,6 @@ function runPowerShell(script: string, event: string, meta: Record<string, unkno
   } catch (error) {
     log.warn(`${event}.failed`, { ...meta, error });
   }
-}
-
-function showWindowsBalloon(
-  title: string,
-  text: string,
-  isError = false,
-  durationMs = 3000,
-): void {
-  const sleepSec = Math.ceil(durationMs / 1000) + 1;
-  const iconType = isError ? "Error" : "Information";
-  const tipIcon = isError ? "Error" : "Info";
-
-  const script = [
-    "Add-Type -AssemblyName System.Windows.Forms",
-    "$n = New-Object System.Windows.Forms.NotifyIcon",
-    `$n.Icon = [System.Drawing.SystemIcons]::${iconType}`,
-    "$n.Visible = $true",
-    `$n.BalloonTipTitle = ${psString(title)}`,
-    `$n.BalloonTipText = ${psString(text)}`,
-    `$n.BalloonTipIcon = ${psString(tipIcon)}`,
-    `$n.ShowBalloonTip(${durationMs})`,
-    `Start-Sleep -Seconds ${sleepSec}`,
-    "$n.Dispose()",
-  ].join("; ");
-
-  runPowerShell(script, "windows_balloon.spawned", { title, text, isError });
 }
 
 function showCustomToast(
@@ -206,53 +178,9 @@ $dispatcher = [System.Windows.Threading.Dispatcher]::CurrentDispatcher
   });
 }
 
-function showNativeNotification(title: string, body: string, subtitle?: string): void {
-  try {
-    Utils.showNotification({ title, body, subtitle, silent: true });
-    log.info("native_notification.spawned", { title, body, subtitle });
-  } catch (error) {
-    log.warn("native_notification.failed", { title, body, subtitle, error });
-  }
-}
-
 function trimErrorMessage(message: string): string {
   const compact = message.replace(/\s+/g, " ").trim();
   return compact.length > 96 ? `${compact.slice(0, 93)}...` : compact;
-}
-
-function getFeedbackMode(): "custom" | "windows" | "native" {
-  const mode = getSettings().feedbackStyle;
-  if (mode === "windows" || mode === "native") return mode;
-  return "custom";
-}
-
-function showFeedback(
-  mode: "custom" | "windows" | "native",
-  opts: {
-    title: string;
-    message: string;
-    subtitle: string;
-    isError?: boolean;
-    durationMs?: number;
-  },
-): void {
-  if (mode === "windows") {
-    showWindowsBalloon(opts.title, opts.message, Boolean(opts.isError), opts.durationMs ?? 3200);
-    return;
-  }
-
-  if (mode === "native") {
-    showNativeNotification(opts.title, opts.message, opts.subtitle);
-    return;
-  }
-
-  showCustomToast(
-    opts.title,
-    opts.message,
-    opts.subtitle,
-    Boolean(opts.isError),
-    opts.durationMs ?? 3200,
-  );
 }
 
 export function handleReplaceStatus(status: ReplaceStatus): void {
@@ -262,35 +190,35 @@ export function handleReplaceStatus(status: ReplaceStatus): void {
     return;
   }
 
-  const mode = getFeedbackMode();
-
   if (status.stage === "processing") {
-    showFeedback(mode, {
-      title: "Assistant is working",
-      message: status.promptName,
-      subtitle: status.model,
-      durationMs: 5000,
-    });
+    showCustomToast(
+      "Assistant is working",
+      status.promptName,
+      status.model,
+      false,
+      5000,
+    );
     return;
   }
 
   if (status.stage === "success") {
-    showFeedback(mode, {
-      title: "Prompt completed",
-      message: "Text updated",
-      subtitle: `${status.promptName} · ${status.model}`,
-      durationMs: 3000,
-    });
+    showCustomToast(
+      "Prompt completed",
+      "Text updated",
+      `${status.promptName} · ${status.model}`,
+      false,
+      3000,
+    );
     return;
   }
 
   if (status.stage === "error") {
-    showFeedback(mode, {
-      title: `Could not run ${status.promptName}`,
-      message: trimErrorMessage(status.detail),
-      subtitle: "Assistant is working in the background.",
-      isError: true,
-      durationMs: 4200,
-    });
+    showCustomToast(
+      `Could not run ${status.promptName}`,
+      trimErrorMessage(status.detail),
+      "Assistant is working in the background.",
+      true,
+      4200,
+    );
   }
 }
