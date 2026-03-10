@@ -17,7 +17,7 @@ const log = createLogger("ffi");
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const INPUT_SIZE = 40; // sizeof(INPUT) on 64-bit Windows — verified
+const INPUT_SIZE = 40; // sizeof(INPUT) on 64-bit Windows - verified
 const INPUT_TYPE_KEYBOARD = 1;
 const INPUT_TYPE_MOUSE = 0;
 const KEYEVENTF_KEYUP = 0x0002;
@@ -37,6 +37,12 @@ const GMEM_MOVEABLE = 0x0002;
 const CAPTURE_COPY_ATTEMPTS = 3;
 const CAPTURE_POLL_INTERVAL_MS = 120;
 const CAPTURE_POLL_ROUNDS = 5;
+const INPUT_UNION_OFFSET = 8;
+const MOUSEINPUT_DX_OFFSET = INPUT_UNION_OFFSET + 0;
+const MOUSEINPUT_DY_OFFSET = INPUT_UNION_OFFSET + 4;
+const MOUSEINPUT_DATA_OFFSET = INPUT_UNION_OFFSET + 8;
+const MOUSEINPUT_FLAGS_OFFSET = INPUT_UNION_OFFSET + 12;
+const MOUSEINPUT_TIME_OFFSET = INPUT_UNION_OFFSET + 16;
 
 // ─── INPUT struct byte layout (64-bit) ───────────────────────────────────────
 //   [0 -  3]  type        (u32) = 1 (KEYBOARD)
@@ -516,42 +522,44 @@ function sendMouseClick(x: number, y: number): void {
   // Get screen dimensions for absolute coordinate normalization
   const screenWidth = u32.GetSystemMetrics(SM_CXSCREEN) as number;
   const screenHeight = u32.GetSystemMetrics(SM_CYSCREEN) as number;
+  if (screenWidth <= 0 || screenHeight <= 0) return;
   
   // Convert to absolute coordinates (0-65535 range)
-  const absX = Math.round((x / screenWidth) * 65535);
-  const absY = Math.round((y / screenHeight) * 65535);
+  const absX = Math.round((x * 65535) / Math.max(screenWidth - 1, 1));
+  const absY = Math.round((y * 65535) / Math.max(screenHeight - 1, 1));
   
   // MOUSEINPUT struct (40 bytes on 64-bit):
-  // [0-3]  dx (LONG) - for absolute, this is the normalized X
-  // [4-7]  dy (LONG) - for absolute, this is the normalized Y
-  // [8-11] mouseData (DWORD) - 0 for normal click
-  // [12-15] dwFlags (DWORD) - MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN/UP
-  // [16-19] time (DWORD) - 0
-  // [20-23] dwExtraInfo (ULONG_PTR) - 0
-  // [24-31] padding (8 bytes to align to largest union member)
-  // [32-39] padding
+  // INPUT wrapper:
+  // [0-3]   type = 0 (MOUSE)
+  // [4-7]   padding
+  // [8-11]  dx (LONG) - normalized X
+  // [12-15] dy (LONG) - normalized Y
+  // [16-19] mouseData (DWORD) - 0 for normal click
+  // [20-23] dwFlags (DWORD)
+  // [24-27] time (DWORD) - 0
+  // [28-31] padding to align dwExtraInfo
+  // [32-39] dwExtraInfo (ULONG_PTR) - 0
   
   // Build two INPUT structs: one for mouse down, one for mouse up
   const buf = new Uint8Array(INPUT_SIZE * 2);
   const dv = new DataView(buf.buffer);
   
-  // MOUSEINPUT layout (same as INPUT when type=0)
   // First INPUT: move + left down
   dv.setUint32(0, INPUT_TYPE_MOUSE, true);        // type = MOUSE
-  dv.setInt32(4, absX, true);                     // dx (absolute X)
-  dv.setInt32(8, absY, true);                     // dy (absolute Y)
-  dv.setUint32(12, 0, true);                      // mouseData
-  dv.setUint32(16, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, true); // dwFlags
-  dv.setUint32(20, 0, true);                      // time
+  dv.setInt32(MOUSEINPUT_DX_OFFSET, absX, true);
+  dv.setInt32(MOUSEINPUT_DY_OFFSET, absY, true);
+  dv.setUint32(MOUSEINPUT_DATA_OFFSET, 0, true);
+  dv.setUint32(MOUSEINPUT_FLAGS_OFFSET, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTDOWN, true);
+  dv.setUint32(MOUSEINPUT_TIME_OFFSET, 0, true);
   // dwExtraInfo at offset 24 is already 0
   
   // Second INPUT: left up
   dv.setUint32(INPUT_SIZE, INPUT_TYPE_MOUSE, true);
-  dv.setInt32(INPUT_SIZE + 4, absX, true);
-  dv.setInt32(INPUT_SIZE + 8, absY, true);
-  dv.setUint32(INPUT_SIZE + 12, 0, true);
-  dv.setUint32(INPUT_SIZE + 16, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, true);
-  dv.setUint32(INPUT_SIZE + 20, 0, true);
+  dv.setInt32(INPUT_SIZE + MOUSEINPUT_DX_OFFSET, absX, true);
+  dv.setInt32(INPUT_SIZE + MOUSEINPUT_DY_OFFSET, absY, true);
+  dv.setUint32(INPUT_SIZE + MOUSEINPUT_DATA_OFFSET, 0, true);
+  dv.setUint32(INPUT_SIZE + MOUSEINPUT_FLAGS_OFFSET, MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_LEFTUP, true);
+  dv.setUint32(INPUT_SIZE + MOUSEINPUT_TIME_OFFSET, 0, true);
   
   u32.SendInput(2, ptr(buf), INPUT_SIZE);
 }

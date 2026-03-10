@@ -127,6 +127,22 @@ function syncStateToWindow(): void {
   }
 }
 
+function createMainWindow(port: number): BrowserWindow {
+  const frame = getWindowFrame("chat");
+  const window = new BrowserWindow({
+    title: "Prompt Chat",
+    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
+    url: `http://localhost:${port}/`,
+    html: null,
+    titleBarStyle: "hidden",
+    transparent: true,
+  });
+
+  bindWindowStatePersistence(window, "chat");
+  log.info("window.created", { frame });
+  return window;
+}
+
 async function ensureServer(): Promise<number> {
   if (serverPort !== null) return serverPort;
 
@@ -239,6 +255,15 @@ async function ensureServer(): Promise<number> {
         return new Response("ok");
       }
 
+      if (req.method === "POST" && path === "/paste") {
+        const body = await req.json() as { text?: string };
+        if (sourceHwnd && body.text?.trim()) {
+          allowSetForegroundWindow();
+          await pasteText(body.text, sourceHwnd, null);
+        }
+        return new Response("ok");
+      }
+
       if (req.method === "POST" && path === "/close") {
         if (mainWindow) {
           try { mainWindow.close(); } catch {}
@@ -290,14 +315,30 @@ export async function showMainWindow(): Promise<void> {
   originalText = "";
   const currentCapture = ++captureSequence;
 
+  try {
+    const captured = await captureSelectedText(fg);
+    if (currentCapture === captureSequence) {
+      originalText = captured.text;
+      sourceHwnd = captured.hwnd;
+      log.info("show.pre_capture_completed", {
+        hwnd: captured.hwnd,
+        chars: captured.text.length,
+        hasText: Boolean(captured.text.trim()),
+      });
+    } else {
+      log.info("show.pre_capture_superseded", { currentCapture, captureSequence });
+    }
+  } catch (error) {
+    if (currentCapture === captureSequence) {
+      originalText = "";
+      log.warn("show.pre_capture_failed", { error });
+    }
+  }
+
   const port = await ensureServer();
 
   if (mainWindow) {
     try {
-      mainWindow.show();
-      mainWindow.setAlwaysOnTop(true);
-      mainWindow.setAlwaysOnTop(false);
-      syncStateToWindow();
       log.info("window.reused");
     } catch {
       mainWindow = null;
@@ -305,41 +346,14 @@ export async function showMainWindow(): Promise<void> {
   }
 
   if (!mainWindow) {
-    const frame = getWindowFrame("chat");
-    mainWindow = new BrowserWindow({
-      title: "Prompt Chat",
-      frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
-      url: `http://localhost:${port}/`,
-      html: null,
-      titleBarStyle: "hidden",
-      transparent: true,
-    });
-
-    bindWindowStatePersistence(mainWindow, "chat");
+    mainWindow = createMainWindow(port);
     showWindowWhenReady(mainWindow, log, "window", () => syncStateToWindow());
+    return;
   }
 
-  void (async () => {
-    try {
-      const captured = await captureSelectedText(fg);
-      if (currentCapture !== captureSequence) {
-        log.info("show.pre_capture_superseded", { currentCapture, captureSequence });
-        return;
-      }
-
-      originalText = captured.text;
-      sourceHwnd = captured.hwnd;
-      syncStateToWindow();
-      log.info("show.pre_capture_completed", {
-        hwnd: captured.hwnd,
-        chars: captured.text.length,
-        hasText: Boolean(captured.text.trim()),
-      });
-    } catch (error) {
-      if (currentCapture !== captureSequence) return;
-      originalText = "";
-      syncStateToWindow();
-      log.warn("show.pre_capture_failed", { error });
-    }
-  })();
+  mainWindow.show();
+  mainWindow.setAlwaysOnTop(true);
+  mainWindow.setAlwaysOnTop(false);
+  syncStateToWindow();
+  log.info("window.shown");
 }

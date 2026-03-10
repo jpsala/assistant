@@ -57,6 +57,11 @@ function setStatus(text: string) {
   statusEl.textContent = text;
 }
 
+function closeWindow() {
+  if (!PORT) return Promise.resolve();
+  return fetch(`http://localhost:${PORT}/close`, { method: "POST" }).catch(() => {});
+}
+
 function applyState(state: Partial<ChatState>) {
   if (typeof state.originalText === "string") {
     originalText.value = state.originalText;
@@ -387,30 +392,48 @@ document.getElementById("btn-copy")?.addEventListener("click", () => {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
-  }).catch(() => {});
+  })
+    .then(() => setStatus("Copied latest response"))
+    .catch(() => setStatus("Copy failed"));
+});
+document.getElementById("btn-paste")?.addEventListener("click", () => {
+  const text = getLatestAssistantText();
+  if (!text || !PORT) {
+    setStatus("No assistant response to paste");
+    return;
+  }
+  fetch(`http://localhost:${PORT}/paste`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  })
+    .then(() => closeWindow())
+    .catch(() => setStatus("Paste failed"));
 });
 document.getElementById("btn-replace")?.addEventListener("click", () => {
   const text = getLatestAssistantText();
-  if (!text || !PORT) return;
+  if (!text || !PORT) {
+    setStatus("No assistant response to apply");
+    return;
+  }
   fetch(`http://localhost:${PORT}/replace`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
-  }).catch(() => {});
+  })
+    .then(() => closeWindow())
+    .catch(() => setStatus("Replace failed"));
 });
 document.getElementById("btn-close")?.addEventListener("click", () => {
-  if (!PORT) return;
-  fetch(`http://localhost:${PORT}/close`, { method: "POST" }).catch(() => {});
+  void closeWindow();
 });
 document.getElementById("titlebar-close")?.addEventListener("click", () => {
-  if (!PORT) return;
-  fetch(`http://localhost:${PORT}/close`, { method: "POST" }).catch(() => {});
+  void closeWindow();
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
-    if (!PORT) return;
-    fetch(`http://localhost:${PORT}/close`, { method: "POST" }).catch(() => {});
+    void closeWindow();
   }
 });
 
