@@ -22,6 +22,7 @@ export type Settings = {
   apiKeys: Record<Provider, string>;
   maxTokens: number;
   feedbackStyle: "custom";
+  startWithSystem: boolean;
 
   // System hotkeys
   hotkeys: {
@@ -48,6 +49,7 @@ const DEFAULTS: Settings = {
   apiKeys: { openrouter: "", openai: "", anthropic: "", xai: "" },
   maxTokens: 8192,
   feedbackStyle: "custom",
+  startWithSystem: false,
   hotkeys: {
     promptChat: "Alt+Shift+W",
     promptPicker: "Alt+Shift+Space",

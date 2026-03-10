@@ -6,6 +6,7 @@ type Settings = {
   apiKeys: Record<Provider, string>;
   maxTokens: number;
   feedbackStyle: "custom";
+  startWithSystem: boolean;
   hotkeys: {
     promptChat: string;
     promptPicker: string;
@@ -41,6 +42,7 @@ const maxTokens = document.getElementById("maxTokens") as HTMLInputElement;
 const promptChat = document.getElementById("promptChat") as HTMLInputElement;
 const promptPicker = document.getElementById("promptPicker") as HTMLInputElement;
 const reloadHotkey = document.getElementById("reloadHotkey") as HTMLInputElement;
+const startWithSystem = document.getElementById("startWithSystem") as HTMLInputElement;
 const resizeGrip = document.getElementById("resize-grip") as HTMLButtonElement;
 
 const apiKeyInputs: Record<Provider, HTMLInputElement> = {
@@ -88,6 +90,7 @@ function getDraftSettings(): Settings {
     },
     maxTokens: Number(maxTokens.value),
     feedbackStyle: "custom",
+    startWithSystem: startWithSystem.checked,
     hotkeys: {
       promptChat: promptChat.value,
       promptPicker: promptPicker.value,
@@ -166,6 +169,7 @@ function applySettings(settings: Settings) {
   promptChat.value = settings.hotkeys.promptChat;
   promptPicker.value = settings.hotkeys.promptPicker;
   reloadHotkey.value = settings.hotkeys.reload;
+  startWithSystem.checked = Boolean(settings.startWithSystem);
 
   (Object.keys(apiKeyInputs) as Provider[]).forEach((provider) => {
     apiKeyInputs[provider].value = settings.apiKeys[provider];

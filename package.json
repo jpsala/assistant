@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node_modules/electrobun/.cache/electrobun.exe dev",
     "dev": "node_modules/electrobun/.cache/electrobun.exe dev --watch",
-    "build": "node_modules/electrobun/.cache/electrobun.exe build"
+    "build": "node_modules/electrobun/.cache/electrobun.exe build",
+    "build:win": "bun run build -- --env=stable",
+    "package:win": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1"
   },
   "dependencies": {
     "electrobun": "^1.15.1"

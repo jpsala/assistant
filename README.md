@@ -155,9 +155,33 @@ Scripts:
 ```powershell
 bun run dev
 bun run build
+bun run build:win
+bun run package:win
 ```
 
 Si `bun run build` falla con `EPERM: operation not permitted, rmdir`, cerrá antes la app en ejecucion porque suele quedar bloqueando archivos dentro de `build/dev-win-x64`.
+
+## Packaging Windows
+
+Para distribuir en Windows, el camino recomendado en este repo es:
+
+1. Electrobun genera el bundle estable
+2. Inno Setup genera un instalador visual de Windows
+
+Comando:
+
+```powershell
+bun run package:win
+```
+
+Salida esperada:
+
+- `build/stable-win-x64/Assistant`
+- `artifacts/windows-installer/Assistant-Installer.exe`
+
+Guia detallada:
+
+- `docs/windows-release.md`
 
 ## Limitaciones conocidas
 

@@ -55,6 +55,7 @@ export default {
     },
     win: {
       bundleCEF: false,
+      icon: "assets/tray-icon.ico",
     },
     mac: {
       bundleCEF: false,

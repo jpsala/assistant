@@ -1,6 +1,7 @@
 node_modules/
 dist/
 build/
+artifacts/
 .tmp-bun-check/
 .tmp-picker-check/
 .env

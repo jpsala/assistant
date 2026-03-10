@@ -59,6 +59,7 @@ function sanitizeSettings(input: Settings): Settings {
     provider: input.provider,
     model: input.model.trim(),
     feedbackStyle: "custom",
+    startWithSystem: Boolean(input.startWithSystem),
     apiKeys: {
       openrouter: input.apiKeys.openrouter.trim(),
       openai: input.apiKeys.openai.trim(),

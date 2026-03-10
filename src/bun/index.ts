@@ -10,6 +10,7 @@ import { initMainWindow, showMainWindow } from "./mainview-window";
 import { initSettingsWindow, showSettingsWindow } from "./settings-window";
 import { initEditorWindow, showEditorWindow } from "./editor-window";
 import { createLogger, getLogFilePath, resetLogFile } from "./logger";
+import { syncLaunchAtStartup } from "./startup";
 
 const log = createLogger("startup");
 resetLogFile();
@@ -31,6 +32,7 @@ log.info("settings.loaded", {
   model: settings.model,
   onboarded: settings.onboarded,
 });
+syncLaunchAtStartup(settings);
 
 // ─── Tray ─────────────────────────────────────────────────────────────────────
 
@@ -190,6 +192,7 @@ await initPickerServer();
 await initSettingsWindow(async (nextSettings) => {
   applySystemHotkeys(nextSettings);
   updateTrayMenu(nextSettings);
+  syncLaunchAtStartup(nextSettings);
   log.info("settings.applied", {
     provider: nextSettings.provider,
     model: nextSettings.model,
