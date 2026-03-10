@@ -1,75 +1,188 @@
 # Assistant
 
-App de Windows hecha con Bun + Electrobun para ejecutar prompts sobre texto seleccionado, abrir un chat contextual y administrar prompts locales.
+Assistant es una app de Windows para trabajar sobre texto seleccionado usando prompts y chat contextual.
 
-## Qué hace
+La idea es simple: seleccionás texto en cualquier aplicación, llamás a Assistant con un hotkey y decidís si querés transformar ese texto con un prompt, iterar en un chat, o guardar el resultado para usarlo después.
 
-- reemplaza texto seleccionado usando prompts guardados
-- abre un picker de prompts con teclado
-- abre un chat contextual tomando la seleccion actual
-- guarda prompts como archivos Markdown editables
-- muestra feedback visual con un custom tooltip
-- recuerda posicion y tamaño de las ventanas principales
+Guía rápida online:
 
-## Ventanas principales
+- `https://mdview.jpsala.dev`
+
+## Qué problema resuelve
+
+Si escribís mails, documentación, código, mensajes de Slack, tickets o traducciones, normalmente hacés siempre el mismo ciclo:
+
+1. copiar texto
+2. abrir alguna herramienta aparte
+3. pegar
+4. escribir una instrucción
+5. copiar el resultado
+6. volver a la app original
+7. pegar de nuevo
+
+Assistant reduce ese ida y vuelta.
+
+## Conceptos principales
+
+### Selección
+
+La mayoría de los flujos parten de texto seleccionado en otra app.
+
+Ejemplos:
+
+- un párrafo en Word
+- un mail en Outlook
+- una función en VS Code
+- un mensaje en Slack o Teams
+
+### Prompt
+
+Un prompt es una instrucción reusable guardada como archivo Markdown.
+
+Ejemplos:
+
+- `fix-writing`
+- `summarize`
+- `translate-english`
+- `improve-email`
+
+Cada prompt puede tener:
+
+- nombre
+- hotkey
+- provider
+- model
+- cuerpo de instrucción
 
 ### Open Chat
 
-Abre una ventana de chat y toma el texto seleccionado como contexto.
+Es la ventana para conversar con el modelo usando como contexto el texto seleccionado.
 
-Qué podés hacer:
+Sirve cuando no querés un resultado directo en un solo paso, sino iterar.
 
-- ver el texto original en `Original Text`
-- escribir instrucciones libres
-- usar `/nombre-del-prompt` en la primera linea para aplicar un prompt guardado como system prompt
-- copiar la ultima respuesta
-- reemplazar el texto seleccionado con la ultima respuesta
+### Prompt Picker
+
+Es la forma más rápida de ejecutar un prompt guardado sobre el texto actual.
+
+Sirve para acciones repetitivas.
+
+### Prompt Editor
+
+Es donde creás y editás prompts propios.
+
+### Settings
+
+Es donde configurás:
+
+- provider por default
+- model por default
+- API keys
+- hotkeys
+- `Launch on Login`
+
+## Cómo funciona en la práctica
+
+### Flujo 1: corregir o reescribir un texto
+
+1. Seleccionás texto en cualquier app.
+2. Abrís `Prompt Picker`.
+3. Elegís `fix-writing`.
+4. Assistant genera una versión mejorada.
+5. El texto seleccionado se reemplaza.
+
+Ejemplo de uso:
+
+```text
+Texto original:
+"Hi, just checking if you saw my last mail because maybe we need to move fast on this."
+
+Resultado:
+"Hi, just checking whether you saw my last email. We may need to move quickly on this."
+```
+
+### Flujo 2: resumir algo largo
+
+1. Seleccionás un texto largo.
+2. Abrís `Prompt Picker`.
+3. Elegís `summarize`.
+4. Assistant devuelve una versión corta.
+
+Útil para:
+
+- mails largos
+- PR descriptions
+- documentación
+- reuniones transcritas
+
+### Flujo 3: usar chat con contexto
+
+1. Seleccionás texto.
+2. Abrís `Open Chat`.
+3. Escribís una instrucción libre.
+4. Iterás hasta que el resultado te sirva.
+5. Usás:
+   - `Copy Latest`
+   - `Paste in Source App`
+   - `Replace Selected Text`
 
 Ejemplo:
 
 ```text
 /fix-writing
-Reescribilo para que suene mas claro y mas corto.
+Reescribilo para que suene más claro, más corto y más profesional.
 ```
 
-Flujo:
+Otro ejemplo:
 
-1. Seleccioná texto en cualquier app.
-2. Abrí `Open Chat` desde el tray o por hotkey.
-3. Escribí tu instruccion.
-4. Usá `Replace Selected Text` si querés pegar el resultado sobre la seleccion original.
+```text
+Explicame este código como si estuvieras ayudando a un developer junior.
+```
+
+### Flujo 4: insertar texto sin haber seleccionado nada
+
+`Open Chat` también sirve aunque no hayas seleccionado texto antes.
+
+Caso típico:
+
+1. abrís `Open Chat`
+2. escribís una instrucción
+3. generás una respuesta
+4. usás `Paste in Source App`
+
+Eso pega la última respuesta en la aplicación original donde estaba el cursor.
+
+## Features principales
+
+### Open Chat
+
+Permite:
+
+- usar la selección actual como contexto
+- escribir instrucciones libres
+- invocar un prompt al comienzo con `/nombre-del-prompt`
+- copiar la última respuesta
+- pegar la última respuesta en la app original
+- reemplazar la selección original
 
 ### Prompt Picker
 
-Abre un buscador de prompts para correrlos directamente sobre la seleccion actual.
+Permite:
 
-Qué podés hacer:
-
-- buscar por nombre
+- buscar prompts por nombre
 - navegar con teclado
-- ejecutar un prompt sobre el texto seleccionado
-
-Ejemplo:
-
-1. Seleccioná un mail.
-2. Abrí el picker.
-3. Elegí `improve-email`.
-4. La app genera el texto y reemplaza la seleccion.
+- ejecutar prompts rápido
+- reemplazar la selección sin abrir el chat
 
 ### Prompt Editor
 
-Permite crear, editar y borrar prompts guardados en Markdown.
+Permite:
 
-Cada prompt puede tener metadatos como:
+- crear prompts
+- editarlos en Markdown
+- asignarles hotkeys
+- elegir provider/model por prompt
 
-- `@name`
-- `@hotkey`
-- `@provider`
-- `@model`
-- `@category`
-- `@confirm`
-
-Ejemplo:
+Ejemplo de prompt:
 
 ```md
 @name:Fix Writing
@@ -82,15 +195,13 @@ Rewrite the selected text so it is clearer, cleaner and more concise.
 
 ### Settings
 
-Permite configurar:
+Permite:
 
-- provider por default
-- modelo por default
-- API keys
-- max tokens
-- hotkeys del sistema
-
-Las ventanas `chat`, `picker`, `settings` y `editor` recuerdan `x/y/w/h` entre sesiones.
+- guardar API keys
+- elegir provider por default
+- elegir model por default
+- configurar hotkeys del sistema
+- activar `Launch on Login`
 
 ## Hotkeys
 
@@ -99,7 +210,7 @@ Defaults actuales:
 - `Open Chat`: `Alt+Shift+W`
 - `Prompt Picker`: `Alt+Shift+Space`
 
-También podés asignar hotkeys por prompt, incluidos chords.
+También podés definir hotkeys por prompt.
 
 Ejemplos válidos:
 
@@ -108,67 +219,60 @@ Ejemplos válidos:
 - `Alt+T -> Y`
 - `!t,y`
 
-El tray muestra el hotkey configurado para `Open Chat` y `Prompt Picker`.
+## Cómo se definen los prompts
 
-## Cómo se usan los prompts
+Los prompts viven en:
 
-Los prompts viven en `%APPDATA%\\assistant\\prompts`.
+- `%APPDATA%\\assistant\\prompts`
 
-Formato:
+Formato mínimo:
 
 ```md
 @name:Summarize
-@hotkey:Alt+Shift+S
-@provider:openrouter
-@model:anthropic/claude-sonnet-4-5
 
 Summarize the selected text in 5 bullet points.
 ```
 
-Notas:
+Formato más completo:
 
-- si no definís `@provider` o `@model`, usa lo configurado en Settings
-- `@confirm:true` se parsea, pero hoy todavia no tiene flujo implementado
+```md
+@name:Translate to English
+@hotkey:Alt+Shift+E
+@provider:openrouter
+@model:anthropic/claude-sonnet-4-5
 
-## Feedback visual
-
-La app usa un custom tooltip propio para mostrar:
-
-- procesamiento
-- exito
-- error
-
-No hay selector de estilo: el modo activo y unico es el custom tooltip.
-
-## Estructura de datos del usuario
-
-Se guarda en `%APPDATA%\\assistant`:
-
-- `settings.json`
-- `prompts\\*.md`
-- `logs\\latest.log`
-
-## Desarrollo
-
-Scripts:
-
-```powershell
-bun run dev
-bun run build
-bun run build:win
-bun run package:win
+Translate the selected text into natural, concise English.
 ```
 
-Si `bun run build` falla con `EPERM: operation not permitted, rmdir`, cerrá antes la app en ejecucion porque suele quedar bloqueando archivos dentro de `build/dev-win-x64`.
+Metadatos soportados hoy:
+
+- `@name`
+- `@hotkey`
+- `@provider`
+- `@model`
+- `@category`
+- `@confirm`
+
+## Primer uso recomendado
+
+1. Abrí `Settings`.
+2. Cargá tu API key.
+3. Elegí provider y model.
+4. Probá `Open Chat` sobre un texto corto.
+5. Probá `Prompt Picker` con `fix-writing` o `summarize`.
+6. Si te sirve, activá `Launch on Login`.
+
+## Dónde guarda tus datos
+
+Assistant guarda sus datos de usuario en:
+
+- `%APPDATA%\\assistant\\settings.json`
+- `%APPDATA%\\assistant\\prompts\\*.md`
+- `%APPDATA%\\assistant\\logs\\latest.log`
 
 ## Packaging Windows
 
-Para distribuir en Windows, el camino recomendado en este repo es:
-
-1. Electrobun genera el bundle estable
-2. Inno Setup genera un instalador visual de Windows
-
-Comando:
+Para generar el instalador de Windows:
 
 ```powershell
 bun run package:win
@@ -176,22 +280,21 @@ bun run package:win
 
 Salida esperada:
 
-- `build/stable-win-x64/Assistant`
 - `artifacts/windows-installer/Assistant-Installer.exe`
 
-Guia detallada:
+Guía técnica:
 
 - `docs/windows-release.md`
 
 ## Limitaciones conocidas
 
-- `@confirm:true` todavia no abre una confirmacion real
-- no hay accion de undo visible para un replace ya hecho
+- `@confirm:true` se parsea, pero todavía no tiene un flujo de confirmación completo
+- no hay una acción de undo visible después de un replace
 - las API keys se guardan en `settings.json`
 
-## Resumen rapido de uso
+## Resumen rápido
 
-1. Configurá tu provider, modelo y API key en Settings.
-2. Seleccioná texto en cualquier app Windows.
-3. Usá `Prompt Picker` para correr un prompt rapido o `Open Chat` para iterar.
-4. Si el resultado te sirve, reemplazá la seleccion o copiá la ultima respuesta.
+1. Seleccioná texto.
+2. Abrí `Prompt Picker` para algo rápido o `Open Chat` para iterar.
+3. Revisá el resultado.
+4. Reemplazá, pegá o copiá la respuesta.

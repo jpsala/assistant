@@ -15,9 +15,16 @@ function isWindows(): boolean {
 function getLauncherPath(): string | null {
   if (!isWindows()) return null;
 
-  const launcherPath = join(dirname(process.execPath), "launcher.exe");
-  if (existsSync(launcherPath)) {
-    return launcherPath;
+  const runtimeDir = dirname(process.execPath);
+  const candidates = [
+    join(runtimeDir, "launcher.exe"),
+    join(runtimeDir, "launcher"),
+  ];
+
+  for (const launcherPath of candidates) {
+    if (existsSync(launcherPath)) {
+      return launcherPath;
+    }
   }
 
   return null;

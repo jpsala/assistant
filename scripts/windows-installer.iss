@@ -22,6 +22,10 @@
   #define OutputDir "artifacts\windows-installer"
 #endif
 
+#ifndef AppDocsUrl
+  #define AppDocsUrl "https://mdview.jpsala.dev"
+#endif
+
 [Setup]
 AppId={{5DDA4F65-1B9D-46DA-BD05-5E59B4A3652A}
 AppName={#MyAppName}
@@ -39,7 +43,7 @@ WizardStyle=modern
 OutputDir={#OutputDir}
 OutputBaseFilename={#MyAppName}-Installer
 SetupIconFile={#AppIconFile}
-UninstallDisplayIcon={app}\bin\launcher.exe
+UninstallDisplayIcon={app}\Resources\app.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -51,8 +55,9 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "{#AppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\bin\launcher.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\launcher.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\bin\launcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Resources\app.ico"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\bin\launcher.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Resources\app.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\bin\launcher.exe"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{#AppDocsUrl}"; Description: "Open Quick Start Guide"; Flags: postinstall shellexec skipifsilent unchecked

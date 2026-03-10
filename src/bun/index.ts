@@ -13,6 +13,7 @@ import { createLogger, getLogFilePath, resetLogFile } from "./logger";
 import { syncLaunchAtStartup } from "./startup";
 
 const log = createLogger("startup");
+const GUIDE_URL = "https://mdview.jpsala.dev";
 resetLogFile();
 log.info("session.started", { logFile: getLogFilePath() });
 
@@ -39,6 +40,31 @@ syncLaunchAtStartup(settings);
 const trayIcon = resolve(import.meta.dir, "../assets/tray-icon.ico");
 const tray = new Tray({ title: "Assistant", image: trayIcon, width: 32, height: 32 });
 
+function openExternalUrl(url: string): void {
+  const platform = process.platform;
+  const cmd =
+    platform === "win32"
+      ? ["cmd.exe", "/c", "start", "", url]
+      : platform === "darwin"
+        ? ["open", url]
+        : ["xdg-open", url];
+
+  const proc = Bun.spawn({
+    cmd,
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+
+  proc.exited.then((code) => {
+    if (code !== 0) {
+      log.warn("guide.open_failed", { url, code, platform });
+    }
+  }).catch((error) => {
+    log.warn("guide.open_failed", { url, platform, error });
+  });
+}
+
 function withHotkeyLabel(label: string, hotkey?: string): string {
   const normalized = hotkey?.trim();
   return normalized ? `${label}    ${formatHotkeyForDisplay(normalized)}` : label;
@@ -59,6 +85,7 @@ function updateTrayMenu(settings: Settings): void {
     { type: "normal", label: "Prompt Editor", action: "editor" },
     { type: "divider" },
     { type: "normal", label: "Settings", action: "settings" },
+    { type: "normal", label: "Open Guide", action: "guide" },
     { type: "divider" },
     { type: "normal", label: "Quit", action: "quit" },
   ]);
@@ -84,6 +111,10 @@ tray.on("tray-clicked", (event: any) => {
     case "editor":
       log.info("tray.open_editor");
       showEditorWindow().catch((error) => log.error("tray.open_editor_failed", { error }));
+      break;
+    case "guide":
+      log.info("tray.open_guide", { url: GUIDE_URL });
+      openExternalUrl(GUIDE_URL);
       break;
     case "quit":
       log.info("tray.quit");
@@ -199,6 +230,11 @@ await initSettingsWindow(async (nextSettings) => {
   });
 });
 await initEditorWindow();
+
+if (!settings.onboarded) {
+  log.info("onboarding.show_settings");
+  showSettingsWindow().catch((error) => log.error("onboarding.show_settings_failed", { error }));
+}
 
 // Keep the Bun event loop alive indefinitely.
 // Without this, Bun may drain the event loop and exit even with active servers.

@@ -141,6 +141,7 @@ async function ensureServer(): Promise<number> {
 
       if (req.method === "POST" && path === "/save") {
         const next = sanitizeSettings(await req.json() as Settings);
+        next.onboarded = true;
         log.info("save.requested", {
           provider: next.provider,
           model: next.model,
