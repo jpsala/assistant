@@ -9,11 +9,11 @@ import { showPicker, updatePickerPrompts, initPickerServer } from "./picker";
 import { initMainWindow, showMainWindow } from "./mainview-window";
 import { initSettingsWindow, showSettingsWindow } from "./settings-window";
 import { initEditorWindow, showEditorWindow } from "./editor-window";
+import { getGuideUrl } from "./guide-url";
 import { createLogger, getLogFilePath, resetLogFile } from "./logger";
 import { syncLaunchAtStartup } from "./startup";
 
 const log = createLogger("startup");
-const GUIDE_URL = "https://mdview.jpsala.dev";
 resetLogFile();
 log.info("session.started", { logFile: getLogFilePath() });
 
@@ -113,8 +113,11 @@ tray.on("tray-clicked", (event: any) => {
       showEditorWindow().catch((error) => log.error("tray.open_editor_failed", { error }));
       break;
     case "guide":
-      log.info("tray.open_guide", { url: GUIDE_URL });
-      openExternalUrl(GUIDE_URL);
+      {
+        const guideUrl = getGuideUrl();
+        log.info("tray.open_guide", { url: guideUrl });
+        openExternalUrl(guideUrl);
+      }
       break;
     case "quit":
       log.info("tray.quit");

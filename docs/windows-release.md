@@ -2,8 +2,9 @@
 
 This project uses two layers for Windows distribution:
 
-1. Electrobun creates the stable app bundle in `build/stable-win-x64/Assistant`
-2. Inno Setup wraps that bundle into a normal Windows installer wizard
+1. Electrobun creates the stable Windows artifacts
+2. The packaging script extracts the real app bundle from the stable tarball into a staging folder
+3. Inno Setup wraps that staged app into a normal Windows installer wizard
 
 ## Prerequisites
 
@@ -23,13 +24,16 @@ bun run package:win
 That command does two things:
 
 1. Runs `bun run build -- --env=stable`
-2. Runs Inno Setup with `scripts/windows-installer.iss`
+2. Extracts `build/stable-win-x64/Assistant-Setup.tar.zst` into `build/stable-win-x64/installer-stage`
+3. Runs Inno Setup with `scripts/windows-installer.iss`
 
 ## Output
 
 Stable Electrobun bundle:
 
 - `build/stable-win-x64/Assistant`
+- `build/stable-win-x64/Assistant-Setup.tar.zst`
+- `build/stable-win-x64/installer-stage/Assistant`
 
 Inno Setup installer:
 
@@ -59,6 +63,11 @@ The Inno installer currently:
 - creates a Start Menu shortcut
 - optionally creates a Desktop shortcut
 - offers `Launch Assistant` after installation
+- offers `Open Quick Start Guide` after installation
+
+The current guide URL is:
+
+- `https://md.jpsala.dev/view?guide=ai-assistant&f=DOC/README.md`
 
 The separate app setting `Launch on Login` is handled by the app itself after install.
 
@@ -84,7 +93,7 @@ Before a release:
    - `Launch on Login` writes/removes startup entry correctly
    - uninstall removes the app cleanly
 4. If shipping publicly, sign both:
-   - `build/stable-win-x64/Assistant/bin/launcher.exe`
+   - `build/stable-win-x64/installer-stage/Assistant/bin/launcher.exe`
    - `artifacts/windows-installer/Assistant-Installer.exe`
 
 ## Notes

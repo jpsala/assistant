@@ -23,7 +23,7 @@
 #endif
 
 #ifndef AppDocsUrl
-  #define AppDocsUrl "https://mdview.jpsala.dev"
+  #define AppDocsUrl "https://md.jpsala.dev/view?guide=ai-assistant&f=DOC/README.md"
 #endif
 
 [Setup]

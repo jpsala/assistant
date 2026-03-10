@@ -6,7 +6,7 @@ La idea es simple: seleccionás texto en cualquier aplicación, llamás a Assist
 
 Guía rápida online:
 
-- `https://mdview.jpsala.dev`
+- `https://md.jpsala.dev/view?guide=ai-assistant&f=DOC/README.md`
 
 ## Qué problema resuelve
 
