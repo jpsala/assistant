@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "start": "node_modules/electrobun/.cache/electrobun.exe dev",
-    "dev": "node_modules/electrobun/.cache/electrobun.exe dev --watch",
-    "build": "node_modules/electrobun/.cache/electrobun.exe build",
+    "start": "bun node_modules/electrobun/bin/electrobun.cjs dev",
+    "dev": "bun node_modules/electrobun/bin/electrobun.cjs dev --watch",
+    "build": "bun node_modules/electrobun/bin/electrobun.cjs build",
     "build:win": "bun run build -- --env=stable",
     "package:win": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1"
   },

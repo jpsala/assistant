@@ -5,7 +5,8 @@ $runtimeDir = Join-Path $repoRoot ".tmp-dev-runtime"
 $stdoutLog = Join-Path $runtimeDir "dev-stdout.log"
 $stderrLog = Join-Path $runtimeDir "dev-stderr.log"
 $pidFile = Join-Path $runtimeDir "dev.pid"
-$exePath = Join-Path $repoRoot "node_modules/electrobun/.cache/electrobun.exe"
+$bunExe = (Get-Command bun.exe).Source
+$cliPath = Join-Path $repoRoot "node_modules/electrobun/bin/electrobun.cjs"
 
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 
@@ -21,13 +22,13 @@ foreach ($process in $targets) {
 
 Start-Sleep -Milliseconds 500
 
-if (!(Test-Path $exePath)) {
-  throw "Electrobun executable not found at $exePath"
+if (!(Test-Path $cliPath)) {
+  throw "Electrobun CLI not found at $cliPath"
 }
 
 $proc = Start-Process `
-  -FilePath $exePath `
-  -ArgumentList "dev" `
+  -FilePath $bunExe `
+  -ArgumentList $cliPath, "dev" `
   -WorkingDirectory $repoRoot `
   -RedirectStandardOutput $stdoutLog `
   -RedirectStandardError $stderrLog `
