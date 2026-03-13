@@ -22,6 +22,7 @@ export type ChordServiceOptions = {
   timeoutMs?: number;
   scheduler?: ChordServiceScheduler;
   logger?: LoggerLike;
+  onStateChange?: (pending: PendingChordState<unknown> | null) => void;
 };
 
 type RegisteredChord = ChordMatch;
@@ -74,6 +75,7 @@ export class DefaultChordService<TWindow = unknown> implements ChordService<TWin
   private readonly logger: LoggerLike;
   private readonly scheduler: ChordServiceScheduler;
   private readonly timeoutMs: number;
+  private readonly onStateChange?: (pending: PendingChordState<TWindow> | null) => void;
   private readonly matchesByPrefix = new Map<string, Map<string, RegisteredChord>>();
   private readonly actionIndex = new Map<string, { prefix: string; suffix: string }>();
   private pendingState: PendingChordState<TWindow> | null = null;
@@ -84,6 +86,7 @@ export class DefaultChordService<TWindow = unknown> implements ChordService<TWin
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.scheduler = options.scheduler ?? createDefaultScheduler();
     this.logger = options.logger ?? createLogger("chord-service");
+    this.onStateChange = options.onStateChange as ((pending: PendingChordState<TWindow> | null) => void) | undefined;
   }
 
   registerChord(match: ChordMatch): void {
@@ -117,6 +120,7 @@ export class DefaultChordService<TWindow = unknown> implements ChordService<TWin
 
     if (this.pendingState && this.pendingState.prefix === prefix) {
       this.pendingState = this.buildPendingState(prefix, this.pendingState.sourceHwnd, this.pendingState.sessionId, this.pendingState.startedAt);
+      this.emitStateChange();
     }
   }
 
@@ -146,6 +150,7 @@ export class DefaultChordService<TWindow = unknown> implements ChordService<TWin
         this.finishCancel("empty-prefix", undefined, nextState);
       } else {
         this.pendingState = nextState;
+        this.emitStateChange();
       }
     }
   }
@@ -169,6 +174,7 @@ export class DefaultChordService<TWindow = unknown> implements ChordService<TWin
     }
 
     this.pendingState = nextState;
+    this.emitStateChange();
     this.pendingTimer = this.scheduler.setTimeout(() => {
       const timedOut = this.pendingState;
       if (!timedOut || timedOut.sessionId !== sessionId) return;
@@ -213,6 +219,7 @@ export class DefaultChordService<TWindow = unknown> implements ChordService<TWin
 
     this.clearPendingTimer();
     this.pendingState = null;
+    this.emitStateChange();
     this.logger.info("chord_service.suffix_matched", {
       sessionId: pending.sessionId,
       prefix: pending.prefix,
@@ -269,6 +276,7 @@ export class DefaultChordService<TWindow = unknown> implements ChordService<TWin
   ): ChordResolution<TWindow> {
     this.clearPendingTimer();
     this.pendingState = null;
+    this.emitStateChange();
     this.logger.info(reason === "timeout" ? "chord_service.timeout" : "chord_service.cancelled", {
       sessionId: pending.sessionId,
       prefix: pending.prefix,
@@ -287,6 +295,10 @@ export class DefaultChordService<TWindow = unknown> implements ChordService<TWin
   private clearPendingTimer(): void {
     this.pendingTimer?.cancel();
     this.pendingTimer = null;
+  }
+
+  private emitStateChange(): void {
+    this.onStateChange?.(this.pendingState ? clonePendingState(this.pendingState) : null);
   }
 
   private deleteRegistration(prefix: string, suffix: string, actionId: string): void {

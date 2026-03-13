@@ -8,6 +8,10 @@
 
 import { GlobalShortcut } from "electrobun/bun";
 import { captureSelectedText, getForegroundWindow, releaseModifiers, type CaptureResult } from "./ffi";
+import { createLogger } from "./logger";
+import { createChordService } from "./chord-service";
+import type { PendingChordState } from "./chord-types";
+import { WindowsKeyboardBackend } from "./windows-keyboard-backend";
 
 // ─── Format conversion ────────────────────────────────────────────────────────
 
@@ -88,6 +92,8 @@ type RegisteredHotkeyInfo = {
 
 type ChordHintShowFn = (prefix: string, entries: { key: string; label: string }[]) => void;
 
+const log = createLogger("hotkeys");
+
 let hintShow: ChordHintShowFn = () => {};
 let hintHide: () => void = () => {};
 
@@ -164,8 +170,8 @@ function validateSingleSpec(spec: string, role: "single" | "chord-prefix" | "cho
 }
 
 function findOwnerForAccelerator(accelerator: string, excludeName?: string): string | undefined {
-  for (const [name, keys] of registered) {
-    if (name !== excludeName && keys.includes(accelerator)) return name;
+  for (const [name, info] of registeredInfo) {
+    if (name !== excludeName && info.accelerators.includes(accelerator)) return name;
   }
   return undefined;
 }
@@ -224,6 +230,8 @@ const registeredInfo = new Map<string, RegisteredHotkeyInfo>();
 type ChordAction = {
   cb: HotkeyCallback;
   label: string;
+  prefix: string;
+  suffix: string;
 };
 
 // chord prefix → { suffix → callback, timers }
@@ -234,6 +242,21 @@ type ChordState = {
   sourceHwnd: unknown;
 };
 const chordPrefixes = new Map<string, ChordState>();
+const chordActionsByName = new Map<string, ChordAction>();
+const chordPrefixRefs = new Map<string, Set<string>>();
+
+const CHORD_TIMEOUT_MS = 900;
+const CHORD_HINT_DELAY_MS = 400;
+
+let chordHintTimer: Timer | null = null;
+let visibleHintSessionId: number | null = null;
+let chordBackendReady = false;
+
+const chordBackend = process.platform === "win32" ? new WindowsKeyboardBackend() : null;
+const chordService = createChordService({
+  timeoutMs: CHORD_TIMEOUT_MS,
+  onStateChange: (pending) => syncChordHint(pending),
+});
 
 // ─── Core registration ────────────────────────────────────────────────────────
 
@@ -255,9 +278,99 @@ function _unregister(accelerator: string): void {
 // Note: suffix must be a full key combo (not a bare key) to avoid
 // intercepting normal typing when not in chord mode.
 
-const CHORD_TIMEOUT_MS = 900;
-const CHORD_HINT_DELAY_MS = 400;
 const CHORD_HINT_TIMEOUT_MS = 5000;
+
+function clearChordHintState(): void {
+  if (chordHintTimer !== null) {
+    clearTimeout(chordHintTimer);
+    chordHintTimer = null;
+  }
+  if (visibleHintSessionId !== null) {
+    hintHide();
+    visibleHintSessionId = null;
+  }
+}
+
+function syncChordHint(pending: PendingChordState<unknown> | null): void {
+  if (!pending) {
+    clearChordHintState();
+    return;
+  }
+
+  if (visibleHintSessionId === pending.sessionId) {
+    hintShow(
+      pending.prefix,
+      pending.entries.map((entry) => ({ key: entry.suffix, label: entry.label })),
+    );
+    return;
+  }
+
+  if (chordHintTimer !== null) {
+    clearTimeout(chordHintTimer);
+    chordHintTimer = null;
+  }
+  hintHide();
+  visibleHintSessionId = null;
+
+  chordHintTimer = setTimeout(() => {
+    chordHintTimer = null;
+    const latestPending = chordService.getPendingState();
+    if (!latestPending || latestPending.sessionId !== pending.sessionId) return;
+    visibleHintSessionId = latestPending.sessionId;
+    hintShow(
+      latestPending.prefix,
+      latestPending.entries.map((entry) => ({ key: entry.suffix, label: entry.label })),
+    );
+  }, CHORD_HINT_DELAY_MS);
+}
+
+function hasChordBackend(): boolean {
+  return chordBackendReady && chordBackend !== null;
+}
+
+async function invokeChordAction(actionId: string, prefix: string, suffix: string, sourceHwnd: unknown): Promise<void> {
+  const action = chordActionsByName.get(actionId);
+  if (!action) {
+    log.warn("chord.action_missing", { actionId, prefix, suffix });
+    return;
+  }
+
+  let preCaptured: CaptureResult | null = null;
+  try {
+    preCaptured = await captureSelectedText(sourceHwnd);
+  } catch {
+    preCaptured = null;
+  }
+
+  await action.cb(preCaptured ? { preCaptured } : undefined);
+}
+
+function handleChordKeyEvent(event: import("./keyboard-backend").KeyEvent): void {
+  const resolution = chordService.handleKeyEvent(event);
+  if (resolution.kind === "matched") {
+    void invokeChordAction(
+      resolution.match.actionId,
+      resolution.match.prefix,
+      resolution.match.suffix,
+      resolution.pending.sourceHwnd,
+    ).catch((error) => {
+      log.error("chord.action_failed", {
+        prefix: resolution.match.prefix,
+        suffix: resolution.match.suffix,
+        actionId: resolution.match.actionId,
+        error,
+      });
+    });
+  }
+}
+
+async function registerChordPrefixWithBackend(prefix: string): Promise<void> {
+  if (!chordBackend) return;
+  await chordBackend.registerPrefix({ id: prefix, accelerator: prefix }, () => {
+    releaseModifiers();
+    chordService.beginPrefix(prefix, getForegroundWindow());
+  });
+}
 
 function clearChordActivation(state: ChordState): void {
   for (const suf of state.actions.keys()) {
@@ -282,6 +395,29 @@ function registerChord(
   cb: HotkeyCallback,
   label: string
 ): boolean {
+  if (hasChordBackend()) {
+    const refs = chordPrefixRefs.get(prefix);
+    if (!refs) {
+      void registerChordPrefixWithBackend(prefix).catch((error) => {
+        log.error("chord.prefix_register_failed", { prefix, error });
+      });
+      chordPrefixRefs.set(prefix, new Set([name]));
+    } else {
+      refs.add(name);
+    }
+
+    const action: ChordAction = {
+      cb,
+      label,
+      prefix,
+      suffix,
+    };
+    chordActionsByName.set(name, action);
+    chordService.registerChord({ prefix, suffix, actionId: name, label });
+    registered.set(name, [`__chord__${prefix}::${suffix}`]);
+    return true;
+  }
+
   // Ensure prefix is registered
   if (!chordPrefixes.has(prefix)) {
     const state: ChordState = { actions: new Map(), timer: null, hintTimer: null, sourceHwnd: null };
@@ -338,7 +474,8 @@ function registerChord(
   }
 
   const state = chordPrefixes.get(prefix)!;
-  state.actions.set(suffix, { cb, label });
+  state.actions.set(suffix, { cb, label, prefix, suffix });
+  chordActionsByName.set(name, { cb, label, prefix, suffix });
 
   // Track for cleanup
   const existing = registered.get(name) ?? [];
@@ -410,7 +547,12 @@ export function registerHotkeyDetailed(
 
   if (validation.kind === "chord") {
     const prefixOwner = findOwnerForAccelerator(validation.prefix!, name);
-    if (prefixOwner && !chordPrefixes.has(validation.prefix!)) {
+    const prefixOwnerInfo = prefixOwner ? registeredInfo.get(prefixOwner) : undefined;
+    const sharedChordPrefix =
+      prefixOwnerInfo?.kind === "chord" &&
+      prefixOwnerInfo.accelerators[0] === validation.prefix!;
+
+    if (prefixOwner && !sharedChordPrefix) {
       return {
         ok: false,
         reason: "already_registered",
@@ -484,15 +626,26 @@ export function unregisterHotkey(name: string): void {
     if (key.startsWith("__chord__")) {
       const [, rest] = key.split("__chord__");
       const [prefix, suffix] = rest.split("::");
-      const state = chordPrefixes.get(prefix);
-      if (state) {
-        state.actions.delete(suffix);
-        // If no more suffixes for this prefix, unregister the prefix too
-        if (state.actions.size === 0) {
-          _unregister(prefix);
-          if (state.timer !== null) clearTimeout(state.timer);
-          if (state.hintTimer !== null) clearTimeout(state.hintTimer);
-          chordPrefixes.delete(prefix);
+      chordActionsByName.delete(name);
+      if (hasChordBackend()) {
+        chordService.unregisterChord(name);
+        const refs = chordPrefixRefs.get(prefix);
+        refs?.delete(name);
+        if (refs && refs.size === 0) {
+          chordPrefixRefs.delete(prefix);
+          void chordBackend?.unregisterPrefix(prefix);
+        }
+      } else {
+        const state = chordPrefixes.get(prefix);
+        if (state) {
+          state.actions.delete(suffix);
+          // If no more suffixes for this prefix, unregister the prefix too
+          if (state.actions.size === 0) {
+            _unregister(prefix);
+            if (state.timer !== null) clearTimeout(state.timer);
+            if (state.hintTimer !== null) clearTimeout(state.hintTimer);
+            chordPrefixes.delete(prefix);
+          }
         }
       }
     } else {
@@ -509,7 +662,13 @@ export function unregisterAll(): void {
   GlobalShortcut.unregisterAll();
   registered.clear();
   registeredInfo.clear();
-  hintHide();
+  clearChordHintState();
+  chordService.cancel("unregister_all");
+  chordActionsByName.clear();
+  for (const prefix of chordPrefixRefs.keys()) {
+    void chordBackend?.unregisterPrefix(prefix);
+  }
+  chordPrefixRefs.clear();
   chordPrefixes.clear();
 }
 
@@ -540,4 +699,25 @@ export function updateHotkeyDetailed(
 
 export function getRegisteredHotkeys(): RegisteredHotkeyInfo[] {
   return Array.from(registeredInfo.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function initHotkeys(): Promise<void> {
+  if (!chordBackend || chordBackendReady) return;
+  try {
+    await chordBackend.start();
+    chordBackend.onKeyEvent(handleChordKeyEvent);
+    chordBackendReady = true;
+    log.info("chord.backend_ready");
+  } catch (error) {
+    chordBackendReady = false;
+    log.warn("chord.backend_start_failed", { error });
+  }
+}
+
+export async function shutdownHotkeys(): Promise<void> {
+  unregisterAll();
+  if (!chordBackend || !chordBackendReady) return;
+  await chordBackend.stop();
+  chordBackendReady = false;
+  log.info("chord.backend_stopped");
 }

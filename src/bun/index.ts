@@ -3,8 +3,10 @@ import { Tray } from "electrobun/bun";
 import {
   formatHotkeyForDisplay,
   getRegisteredHotkeys,
+  initHotkeys,
   setChordHintCallbacks,
   registerHotkeyDetailed,
+  shutdownHotkeys,
   unregisterHotkey,
   unregisterAll,
   updateHotkeyDetailed,
@@ -30,6 +32,7 @@ resetLogFile();
 log.info("session.started", { logFile: getLogFilePath() });
 
 setChordHintCallbacks(showChordHint, hideChordHint);
+await initHotkeys();
 
 // ─── Boot sequence ────────────────────────────────────────────────────────────
 
@@ -135,9 +138,8 @@ tray.on("tray-clicked", (event: any) => {
       break;
     case "quit":
       log.info("tray.quit");
-      unregisterAll();
       tray.remove();
-      process.exit(0);
+      void shutdownHotkeys().finally(() => process.exit(0));
       break;
   }
 });
