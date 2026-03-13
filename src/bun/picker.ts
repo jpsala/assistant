@@ -25,6 +25,7 @@ import { captureSelectedText, getForegroundWindow, findWindowByTitle, forceFocus
 import { createLogger } from "./logger";
 import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
 import { showWindowWhenReady } from "./window-show";
+import { handleCustomWindowRequest } from "./framework/custom-window";
 
 const log = createLogger("picker");
 
@@ -251,13 +252,8 @@ async function startPickerServer(): Promise<number> {
         return new Response("ok");
       }
 
-      if (req.method === "POST" && path === "/window/resize") {
-        const body = await req.json() as { width?: number; height?: number };
-        if (_window && body.width && body.height) {
-          _window.setSize(body.width, body.height);
-        }
-        return new Response("ok");
-      }
+      const handled = await handleCustomWindowRequest(req, path, () => _window, log);
+      if (handled) return handled;
 
       return new Response("Not found", { status: 404 });
     },
@@ -347,7 +343,7 @@ export async function showPicker(): Promise<void> {
     url: `http://localhost:${port}/`,
     html: null,
     titleBarStyle: "hidden",
-    transparent: true,
+    transparent: false,
     rpc,
   });
 

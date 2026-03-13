@@ -1,23 +1,17 @@
 /**
  * Prompt Picker — webview side
- *
- * Initial prompts are injected by the server as window.__PICKER_PROMPTS__.
- * Actions (execute, close) are sent via fetch to the local server.
- * Live prompt updates arrive via the "set-prompts" RPC message (best-effort).
  */
 
 import { Electroview } from "electrobun/view";
 import type { ElectrobunRPCSchema } from "electrobun/view";
+import { mountWindowShell } from "../framework/window-shell";
 
 declare global {
   interface Window {
     __PICKER_PROMPTS__?: PromptInfo[];
     __PICKER_PORT__?: number;
-    __PICKER_RESIZABLE__?: boolean;
   }
 }
-
-// ─── Shared types ─────────────────────────────────────────────────────────────
 
 export type PromptInfo = {
   name: string;
@@ -25,8 +19,6 @@ export type PromptInfo = {
   category: string;
   hotkey?: string;
 };
-
-// ─── RPC schema (best-effort live updates) ────────────────────────────────────
 
 interface PickerSchema extends ElectrobunRPCSchema {
   bun: {
@@ -41,12 +33,277 @@ interface PickerSchema extends ElectrobunRPCSchema {
   };
 }
 
-// ─── State ───────────────────────────────────────────────────────────────────
-
 let allPrompts: PromptInfo[] = window.__PICKER_PROMPTS__ ?? [];
 let selectedIndex = 0;
 const PORT = window.__PICKER_PORT__;
-const RESIZABLE = window.__PICKER_RESIZABLE__ !== false;
+
+const shell = mountWindowShell({
+  title: "Prompt Picker",
+  subtitle: "quick run",
+  showIcon: true,
+  showActionBar: true,
+  showStatusBar: true,
+  minWidth: 520,
+  minHeight: 360,
+});
+
+const style = document.createElement("style");
+style.textContent = `
+  .picker-root {
+    min-height: 0;
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 12px;
+  }
+  .picker-search {
+    position: relative;
+  }
+  .picker-search::before {
+    content: "⌕";
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 18px;
+    pointer-events: none;
+  }
+  #search {
+    width: 100%;
+    background: color-mix(in srgb, var(--ws-bg-muted) 84%, transparent 16%);
+    border: 1px solid color-mix(in srgb, var(--ws-border) 76%, transparent 24%);
+    border-radius: 10px;
+    color: #fff;
+    font-size: 16px;
+    padding: 9px 12px 9px 36px;
+    outline: none;
+  }
+  #search:focus {
+    border-color: color-mix(in srgb, var(--ws-accent) 70%, white 30%);
+  }
+  .picker-list-shell {
+    min-height: 0;
+    overflow: hidden;
+    display: grid;
+    border: 1px solid var(--ws-border);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--ws-bg-elevated) 84%, var(--ws-bg) 16%);
+  }
+  #list {
+    overflow-y: auto;
+    padding: 6px 0;
+    min-height: 0;
+  }
+  #empty {
+    display: grid;
+    place-items: center;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.25);
+    padding: 48px 24px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px;
+    cursor: pointer;
+    border-radius: 8px;
+    margin: 1px 6px;
+    transition: background 0.1s;
+  }
+  .item:hover {
+    background: rgba(0, 122, 204, 0.18);
+  }
+  .item.selected {
+    background: rgba(0, 122, 204, 0.34);
+  }
+  .item-name {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
+    color: #e8e8f8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .item-category {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.45);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .item-hotkey {
+    font-size: 11px;
+    font-family: Consolas, "Fira Mono", monospace;
+    color: rgba(255, 255, 255, 0.28);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  #busy {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: rgba(9, 11, 20, 0.58);
+    backdrop-filter: blur(16px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease;
+  }
+  #busy.visible {
+    opacity: 1;
+  }
+  .busy-card {
+    width: min(420px, calc(100vw - 36px));
+    padding: 18px 18px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: radial-gradient(circle at top right, rgba(0, 122, 204, 0.2), transparent 34%), rgba(10, 14, 28, 0.82);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.34);
+  }
+  .busy-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(225, 232, 255, 0.8);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .busy-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--ws-accent);
+    box-shadow: 0 0 14px rgba(0, 122, 204, 0.8);
+    animation: pulse 1s ease-in-out infinite;
+  }
+  .busy-title {
+    margin-top: 14px;
+    color: #f5f7ff;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .busy-meta {
+    margin-top: 6px;
+    color: rgba(220, 227, 247, 0.68);
+    font-size: 13px;
+  }
+  .busy-bar {
+    margin-top: 16px;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+  }
+  .busy-bar::after {
+    content: "";
+    display: block;
+    width: 34%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, rgba(0, 122, 204, 0.2), var(--ws-accent), rgba(255, 255, 255, 0.24));
+    animation: sweep 1.15s ease-in-out infinite;
+  }
+  .picker-actionbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .picker-button {
+    border: 1px solid color-mix(in srgb, var(--ws-border) 74%, transparent 26%);
+    background: color-mix(in srgb, var(--ws-bg-muted) 84%, transparent 16%);
+    color: #eef2ff;
+    border-radius: 9px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .picker-button.primary {
+    background: var(--ws-accent);
+    border-color: var(--ws-accent);
+  }
+  .picker-button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.72; }
+    50% { transform: scale(1.18); opacity: 1; }
+  }
+  @keyframes sweep {
+    0% { transform: translateX(-18%); }
+    50% { transform: translateX(205%); }
+    100% { transform: translateX(-18%); }
+  }
+`;
+document.head.appendChild(style);
+
+shell.content.innerHTML = `
+  <div class="picker-root">
+    <div class="picker-search">
+      <input
+        id="search"
+        type="text"
+        placeholder="Search prompts…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+    </div>
+    <div class="picker-list-shell">
+      <div id="list"></div>
+      <div id="empty" style="display:none">No prompts found</div>
+    </div>
+    <div id="busy" aria-hidden="true">
+      <div class="busy-card">
+        <div class="busy-chip">
+          <span class="busy-dot"></span>
+          Processing
+        </div>
+        <div class="busy-title" id="busy-title">Running prompt</div>
+        <div class="busy-meta" id="busy-meta">Capturing selection and sending it to the model</div>
+        <div class="busy-bar"></div>
+      </div>
+    </div>
+  </div>
+`;
+
+const search = document.getElementById("search") as HTMLInputElement;
+const list = document.getElementById("list") as HTMLElement;
+const empty = document.getElementById("empty") as HTMLElement;
+const busy = document.getElementById("busy") as HTMLElement;
+const busyTitle = document.getElementById("busy-title") as HTMLElement;
+const busyMeta = document.getElementById("busy-meta") as HTMLElement;
+
+const footerRun = document.createElement("button");
+footerRun.className = "picker-button primary";
+footerRun.type = "button";
+footerRun.textContent = "Run Prompt";
+
+const footerClose = document.createElement("button");
+footerClose.className = "picker-button";
+footerClose.type = "button";
+footerClose.textContent = "Close";
+
+shell.actionbarActions.classList.add("picker-actionbar");
+shell.actionbarActions.append(footerClose, footerRun);
+shell.actionbarCopy.textContent = "Choose a prompt and run it against the current selection.";
+shell.statusLeft.textContent = "Prompt Picker";
+shell.statusRight.textContent = "↑↓ Navigate · Enter Run · Esc Close";
+
+let isExecuting = false;
 
 function sendLog(
   level: "debug" | "info" | "warn" | "error",
@@ -60,8 +317,6 @@ function sendLog(
     body: JSON.stringify({ level, event, meta }),
   }).catch(() => {});
 }
-
-// ─── RPC (live updates only) ──────────────────────────────────────────────────
 
 const rpc = Electroview.defineRPC<PickerSchema>({
   handlers: {
@@ -78,22 +333,6 @@ const rpc = Electroview.defineRPC<PickerSchema>({
 
 new Electroview({ rpc });
 
-// ─── DOM refs ────────────────────────────────────────────────────────────────
-
-const search = document.getElementById("search") as HTMLInputElement;
-const list   = document.getElementById("list")!;
-const empty  = document.getElementById("empty")!;
-const busy   = document.getElementById("busy")!;
-const busyTitle = document.getElementById("busy-title")!;
-const busyMeta = document.getElementById("busy-meta")!;
-const footerRun = document.getElementById("footer-run") as HTMLButtonElement;
-const footerClose = document.getElementById("footer-close") as HTMLButtonElement;
-const resizeGrip = document.getElementById("resize-grip") as HTMLButtonElement;
-
-let isExecuting = false;
-
-// ─── Filtering ───────────────────────────────────────────────────────────────
-
 function getFiltered(): PromptInfo[] {
   const q = search.value.toLowerCase().trim();
   if (!q) return allPrompts;
@@ -104,12 +343,10 @@ function getFiltered(): PromptInfo[] {
   );
 }
 
-// ─── Render ──────────────────────────────────────────────────────────────────
-
 function render() {
   const filtered = getFiltered();
   list.innerHTML = "";
-  empty.style.display = filtered.length ? "none" : "block";
+  empty.style.display = filtered.length ? "none" : "grid";
 
   selectedIndex = Math.max(0, Math.min(selectedIndex, filtered.length - 1));
 
@@ -125,8 +362,7 @@ function render() {
     catEl.className = "item-category";
     catEl.textContent = p.category;
 
-    el.appendChild(nameEl);
-    el.appendChild(catEl);
+    el.append(nameEl, catEl);
 
     if (p.hotkey) {
       const hkEl = document.createElement("span");
@@ -143,8 +379,6 @@ function render() {
   footerRun.disabled = isExecuting || !filtered[selectedIndex];
   footerClose.disabled = isExecuting;
 }
-
-// ─── Actions (via fetch to local server) ─────────────────────────────────────
 
 function setBusy(prompt?: PromptInfo) {
   isExecuting = Boolean(prompt);
@@ -208,49 +442,6 @@ function runSelected() {
   if (selected) execute(selected);
 }
 
-function initResizeGrip() {
-  if (!PORT || !RESIZABLE) {
-    resizeGrip.hidden = true;
-    return;
-  }
-
-  let dragging = false;
-  let startX = 0;
-  let startY = 0;
-  let startWidth = 0;
-  let startHeight = 0;
-
-  const onMove = (event: MouseEvent) => {
-    if (!dragging) return;
-    const width = Math.max(520, Math.round(startWidth + (event.clientX - startX)));
-    const height = Math.max(360, Math.round(startHeight + (event.clientY - startY)));
-    fetch(`http://localhost:${PORT}/window/resize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ width, height }),
-    }).catch(() => {});
-  };
-
-  const onUp = () => {
-    dragging = false;
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
-  };
-
-  resizeGrip.addEventListener("mousedown", (event) => {
-    event.preventDefault();
-    dragging = true;
-    startX = event.clientX;
-    startY = event.clientY;
-    startWidth = window.innerWidth;
-    startHeight = window.innerHeight;
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  });
-}
-
-// ─── Keyboard navigation ─────────────────────────────────────────────────────
-
 search.addEventListener("keydown", (e) => {
   const filtered = getFiltered();
   switch (e.key) {
@@ -278,19 +469,12 @@ search.addEventListener("input", () => {
   render();
 });
 
-// ─── Titlebar close ─────────────────────────────────────────────────────────
-
-document.getElementById("titlebar-close")?.addEventListener("click", () => close());
-footerClose.addEventListener("click", () => close());
-footerRun.addEventListener("click", () => runSelected());
-
-// ─── Init ────────────────────────────────────────────────────────────────────
+footerClose.addEventListener("click", close);
+footerRun.addEventListener("click", runSelected);
 
 render();
 sendLog("info", "booted", { promptCount: allPrompts.length });
-initResizeGrip();
 
-// WebView2 may not have OS focus yet when the page loads — poll until it does.
 function ensureFocus(retries = 30) {
   search.focus();
   if (document.activeElement !== search && retries > 0) {

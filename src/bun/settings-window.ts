@@ -1,58 +1,24 @@
-import { resolve } from "node:path";
 import { BrowserWindow } from "electrobun/bun";
 import { fetchModels } from "./llm";
 import { createLogger } from "./logger";
 import { getSettings, saveSettings, type Settings } from "./settings";
 import type { Provider } from "./prompts";
+import { getRegisteredHotkeys, validateHotkeySpec } from "./hotkeys";
 import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
 import { showWindowWhenReady } from "./window-show";
+import { createCustomWindow, ensureWindowServer } from "./framework/custom-window";
 
 const log = createLogger("settings-window");
 
 type SettingsUpdateHandler = (settings: Settings) => Promise<void> | void;
+type WindowCallbacks = { onOpen?: () => void; onClose?: () => void };
 
 let onSettingsUpdated: SettingsUpdateHandler = () => {};
+let onWindowOpen: () => void = () => {};
+let onWindowClose: () => void = () => {};
 let settingsWindow: BrowserWindow | null = null;
 let server: ReturnType<typeof Bun.serve> | null = null;
 let serverPort: number | null = null;
-
-const builtViewDir = resolve(import.meta.dir, "../views/settings");
-const srcViewDir = resolve(process.cwd(), "src/views/settings");
-
-async function fileExists(path: string): Promise<boolean> {
-  return Bun.file(path).exists();
-}
-
-async function resolveAssets(): Promise<{ js: string; html: string }> {
-  const builtJs = resolve(builtViewDir, "index.js");
-  const srcTs = resolve(srcViewDir, "index.ts");
-
-  let js: string;
-  if (await fileExists(builtJs)) {
-    log.info("assets.using_built_js");
-    js = await Bun.file(builtJs).text();
-  } else if (await fileExists(srcTs)) {
-    log.info("assets.bundling_from_source");
-    const result = await Bun.build({
-      entrypoints: [srcTs],
-      target: "browser",
-      format: "esm",
-    });
-    if (!result.success) {
-      throw new Error(result.logs.map((entry) => entry.message).join("\n"));
-    }
-    js = await result.outputs[0].text();
-  } else {
-    throw new Error(`settings view not found: ${builtJs} | ${srcTs}`);
-  }
-
-  const builtHtml = resolve(builtViewDir, "index.html");
-  const srcHtml = resolve(srcViewDir, "index.html");
-  const htmlPath = (await fileExists(builtHtml)) ? builtHtml : srcHtml;
-  const html = await Bun.file(htmlPath).text();
-
-  return { js, html };
-}
 
 function sanitizeSettings(input: Settings): Settings {
   return {
@@ -60,6 +26,7 @@ function sanitizeSettings(input: Settings): Settings {
     model: input.model.trim(),
     feedbackStyle: "custom",
     startWithSystem: Boolean(input.startWithSystem),
+    selectAllIfEmpty: Boolean(input.selectAllIfEmpty),
     apiKeys: {
       openrouter: input.apiKeys.openrouter.trim(),
       openai: input.apiKeys.openai.trim(),
@@ -77,6 +44,7 @@ function sanitizeSettings(input: Settings): Settings {
       picker: input.windows.picker,
       settings: input.windows.settings,
       editor: input.windows.editor,
+      lab: input.windows.lab,
     },
     onboarded: Boolean(input.onboarded),
   };
@@ -85,36 +53,24 @@ function sanitizeSettings(input: Settings): Settings {
 async function ensureServer(): Promise<number> {
   if (serverPort !== null) return serverPort;
 
-  const { js, html } = await resolveAssets();
-  const finalHtml = html.replace(
-    /<script type="module" src="index\.ts"><\/script>/,
-    `<script type="module" src="/index.js"></script>`,
-  );
-
-  server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      const path = url.pathname;
-
-      if (path === "/" || path === "/index.html") {
-        const payload = finalHtml.replace(
-          "</head>",
-          `<script>window.__SETTINGS_PORT__ = ${server!.port}; window.__SETTINGS_RESIZABLE__ = true;</script>\n</head>`,
-        );
-        return new Response(payload, {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
-        });
-      }
-
-      if (path === "/index.js") {
-        return new Response(js, {
-          headers: { "Content-Type": "application/javascript; charset=utf-8" },
-        });
-      }
-
+  const started = await ensureWindowServer({
+    log,
+    viewName: "settings",
+    headScript: (port) => `window.__SETTINGS_PORT__ = ${port}; window.__SETTINGS_RESIZABLE__ = true;`,
+    context: {
+      windowRef: () => settingsWindow,
+      clearWindowRef: () => {
+        settingsWindow = null;
+      },
+      log,
+    },
+    async handleRequest(req, path) {
       if (req.method === "GET" && path === "/state") {
         return Response.json(getSettings());
+      }
+
+      if (req.method === "GET" && path === "/hotkeys/debug") {
+        return Response.json({ registered: getRegisteredHotkeys() });
       }
 
       if (req.method === "POST" && path === "/models") {
@@ -142,6 +98,18 @@ async function ensureServer(): Promise<number> {
       if (req.method === "POST" && path === "/save") {
         const next = sanitizeSettings(await req.json() as Settings);
         next.onboarded = true;
+        const validations = Object.entries(next.hotkeys).map(([name, spec]) => ({
+          name,
+          spec,
+          result: spec ? validateHotkeySpec(spec) : { ok: true, errors: [] },
+        }));
+        const invalid = validations.filter((entry) => !entry.result.ok);
+        if (invalid.length > 0) {
+          return Response.json({
+            error: invalid.map((entry) => `${entry.name}: ${entry.result.errors.join(" ")}`).join(" | "),
+            validations,
+          }, { status: 400 });
+        }
         log.info("save.requested", {
           provider: next.provider,
           model: next.model,
@@ -152,51 +120,20 @@ async function ensureServer(): Promise<number> {
         await onSettingsUpdated(updated);
         return Response.json(updated);
       }
-
-      if (req.method === "POST" && path === "/close") {
-        log.info("close.requested");
-        if (settingsWindow) {
-          try { settingsWindow.close(); } catch {}
-          settingsWindow = null;
-        }
-        return new Response("ok");
-      }
-
-      if (req.method === "POST" && path === "/window/resize") {
-        const body = await req.json() as { width?: number; height?: number };
-        if (settingsWindow && body.width && body.height) {
-          settingsWindow.setSize(body.width, body.height);
-        }
-        return new Response("ok");
-      }
-
-      if (req.method === "POST" && path === "/log") {
-        const body = await req.json() as {
-          level?: "debug" | "info" | "warn" | "error";
-          event?: string;
-          meta?: Record<string, unknown>;
-        };
-        const level = body.level ?? "info";
-        const event = body.event ?? "webview.event";
-        const meta = body.meta ?? {};
-        if (level === "debug") log.debug(`webview.${event}`, meta);
-        else if (level === "warn") log.warn(`webview.${event}`, meta);
-        else if (level === "error") log.error(`webview.${event}`, meta);
-        else log.info(`webview.${event}`, meta);
-        return new Response("ok");
-      }
-
-      return new Response("Not found", { status: 404 });
     },
   });
-
-  serverPort = server.port;
-  log.info("server.ready", { port: serverPort });
+  server = started.server;
+  serverPort = started.port;
   return serverPort;
 }
 
-export async function initSettingsWindow(handler: SettingsUpdateHandler): Promise<void> {
+export async function initSettingsWindow(
+  handler: SettingsUpdateHandler,
+  callbacks?: WindowCallbacks,
+): Promise<void> {
   onSettingsUpdated = handler;
+  if (callbacks?.onOpen) onWindowOpen = callbacks.onOpen;
+  if (callbacks?.onClose) onWindowClose = callbacks.onClose;
   await ensureServer();
 }
 
@@ -217,15 +154,18 @@ export async function showSettingsWindow(): Promise<void> {
 
   const frame = getWindowFrame("settings");
   log.info("window.creating", frame);
-  settingsWindow = new BrowserWindow({
-    title: "Settings",
-    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
-    url: `http://localhost:${port}/`,
-    html: null,
-    titleBarStyle: "hidden",
-    transparent: true,
-  });
+  onWindowOpen();
+  settingsWindow = createCustomWindow(
+    "Settings",
+    { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
+    `http://localhost:${port}/`,
+    { transparent: false },
+  );
 
   bindWindowStatePersistence(settingsWindow, "settings");
+  settingsWindow.on("close", () => {
+    settingsWindow = null;
+    onWindowClose();
+  });
   showWindowWhenReady(settingsWindow, log, "window");
 }

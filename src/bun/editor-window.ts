@@ -4,66 +4,30 @@
  * HTTP server + BrowserWindow for CRUD operations on prompt .md files.
  * Mirrors the pattern used by picker and settings windows.
  */
-
-import { resolve } from "node:path";
 import { BrowserWindow } from "electrobun/bun";
 import { fetchModels } from "./llm";
 import { createLogger } from "./logger";
 import { getSettings } from "./settings";
 import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
 import { showWindowWhenReady } from "./window-show";
+import { validateHotkeySpec } from "./hotkeys";
+import { createCustomWindow, ensureWindowServer } from "./framework/custom-window";
 import {
   getPrompts,
   savePrompt,
   deletePrompt,
-  PROMPTS_DIR,
   type Prompt,
   type Provider,
 } from "./prompts";
 
 const log = createLogger("editor-window");
+type WindowCallbacks = { onOpen?: () => void; onClose?: () => void };
 
 let editorWindow: BrowserWindow | null = null;
 let server: ReturnType<typeof Bun.serve> | null = null;
 let serverPort: number | null = null;
-
-const builtViewDir = resolve(import.meta.dir, "../views/editor");
-const srcViewDir = resolve(process.cwd(), "src/views/editor");
-
-async function fileExists(path: string): Promise<boolean> {
-  return Bun.file(path).exists();
-}
-
-async function resolveAssets(): Promise<{ js: string; html: string }> {
-  const builtJs = resolve(builtViewDir, "index.js");
-  const srcTs = resolve(srcViewDir, "index.ts");
-
-  let js: string;
-  if (await fileExists(builtJs)) {
-    log.info("assets.using_built_js");
-    js = await Bun.file(builtJs).text();
-  } else if (await fileExists(srcTs)) {
-    log.info("assets.bundling_from_source");
-    const result = await Bun.build({
-      entrypoints: [srcTs],
-      target: "browser",
-      format: "esm",
-    });
-    if (!result.success) {
-      throw new Error(result.logs.map((e) => e.message).join("\n"));
-    }
-    js = await result.outputs[0].text();
-  } else {
-    throw new Error(`editor view not found: ${builtJs} | ${srcTs}`);
-  }
-
-  const builtHtml = resolve(builtViewDir, "index.html");
-  const srcHtml = resolve(srcViewDir, "index.html");
-  const htmlPath = (await fileExists(builtHtml)) ? builtHtml : srcHtml;
-  const html = await Bun.file(htmlPath).text();
-
-  return { js, html };
-}
+let onWindowOpen: () => void = () => {};
+let onWindowClose: () => void = () => {};
 
 /** Serialize all prompts to a flat array the webview can use. */
 function serializePrompts(): Array<{
@@ -73,6 +37,7 @@ function serializePrompts(): Array<{
   model: string;
   hotkey: string;
   confirm: boolean;
+  selectAllIfEmpty: boolean | null;
   category: string;
 }> {
   const prompts = getPrompts();
@@ -84,6 +49,7 @@ function serializePrompts(): Array<{
       model: p.model ?? "",
       hotkey: p.hotkey ?? "",
       confirm: p.confirm,
+      selectAllIfEmpty: p.selectAllIfEmpty,
       category: p.category ?? "",
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -92,36 +58,18 @@ function serializePrompts(): Array<{
 async function ensureServer(): Promise<number> {
   if (serverPort !== null) return serverPort;
 
-  const { js, html } = await resolveAssets();
-  const finalHtml = html.replace(
-    /<script type="module" src="index\.ts"><\/script>/,
-    `<script type="module" src="/index.js"></script>`,
-  );
-
-  server = Bun.serve({
-    port: 0,
-    async fetch(req) {
-      const url = new URL(req.url);
-      const path = url.pathname;
-
-      // ── Static assets ──────────────────────────────────────────────
-      if (path === "/" || path === "/index.html") {
-        const payload = finalHtml.replace(
-          "</head>",
-          `<script>window.__EDITOR_PORT__ = ${server!.port}; window.__EDITOR_RESIZABLE__ = true;</script>\n</head>`,
-        );
-        return new Response(payload, {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
-        });
-      }
-
-      if (path === "/index.js") {
-        return new Response(js, {
-          headers: { "Content-Type": "application/javascript; charset=utf-8" },
-        });
-      }
-
-      // ── GET /state — all prompts + default provider ────────────────
+  const started = await ensureWindowServer({
+    log,
+    viewName: "editor",
+    headScript: (port) => `window.__EDITOR_PORT__ = ${port}; window.__EDITOR_RESIZABLE__ = true;`,
+    context: {
+      windowRef: () => editorWindow,
+      clearWindowRef: () => {
+        editorWindow = null;
+      },
+      log,
+    },
+    async handleRequest(req, path) {
       if (req.method === "GET" && path === "/state") {
         const settings = getSettings();
         return Response.json({
@@ -160,10 +108,26 @@ async function ensureServer(): Promise<number> {
           provider: string;
           model: string;
           hotkey: string;
+          category: string;
           confirm: boolean;
+          selectAllIfEmpty: "true" | "false" | "default";
         };
 
         log.info("save.requested", { oldName: body.oldName, name: body.name });
+        const normalizedName = body.name.trim();
+        if (!normalizedName) {
+          return Response.json({ error: "Name cannot be empty." }, { status: 400 });
+        }
+        const duplicate = getPrompts().get(normalizedName);
+        if (duplicate && body.oldName !== normalizedName) {
+          return Response.json({ error: `A prompt named "${normalizedName}" already exists.` }, { status: 400 });
+        }
+        if (body.hotkey) {
+          const validation = validateHotkeySpec(body.hotkey);
+          if (!validation.ok) {
+            return Response.json({ error: validation.errors.join(" "), validation }, { status: 400 });
+          }
+        }
 
         // If renaming, delete the old file first
         if (body.oldName && body.oldName !== body.name) {
@@ -173,13 +137,18 @@ async function ensureServer(): Promise<number> {
         // Reuse the existing file path when updating (avoid creating duplicates)
         const existing = body.oldName ? getPrompts().get(body.oldName) : null;
         const prompt: Prompt = {
-          name: body.name,
+          name: normalizedName,
           body: body.body,
           provider: (body.provider as Provider) || null,
           model: body.model || null,
           hotkey: body.hotkey || null,
-          category: null,
+          category: body.category.trim() || null,
           confirm: body.confirm,
+          selectAllIfEmpty: body.selectAllIfEmpty === "true"
+            ? true
+            : body.selectAllIfEmpty === "false"
+              ? false
+              : null,
           filePath: existing?.filePath ?? "",
         };
 
@@ -202,51 +171,16 @@ async function ensureServer(): Promise<number> {
         return Response.json({ prompts: serializePrompts() });
       }
 
-      // ── POST /close — close the editor window ─────────────────────
-      if (req.method === "POST" && path === "/close") {
-        log.info("close.requested");
-        if (editorWindow) {
-          try { editorWindow.close(); } catch {}
-          editorWindow = null;
-        }
-        return new Response("ok");
-      }
-
-      if (req.method === "POST" && path === "/window/resize") {
-        const body = await req.json() as { width?: number; height?: number };
-        if (editorWindow && body.width && body.height) {
-          editorWindow.setSize(body.width, body.height);
-        }
-        return new Response("ok");
-      }
-
-      // ── POST /log — structured logging from webview ────────────────
-      if (req.method === "POST" && path === "/log") {
-        const body = (await req.json()) as {
-          level?: "debug" | "info" | "warn" | "error";
-          event?: string;
-          meta?: Record<string, unknown>;
-        };
-        const level = body.level ?? "info";
-        const event = body.event ?? "webview.event";
-        const meta = body.meta ?? {};
-        if (level === "debug") log.debug(`webview.${event}`, meta);
-        else if (level === "warn") log.warn(`webview.${event}`, meta);
-        else if (level === "error") log.error(`webview.${event}`, meta);
-        else log.info(`webview.${event}`, meta);
-        return new Response("ok");
-      }
-
-      return new Response("Not found", { status: 404 });
     },
   });
-
-  serverPort = server.port;
-  log.info("server.ready", { port: serverPort });
+  server = started.server;
+  serverPort = started.port;
   return serverPort;
 }
 
-export async function initEditorWindow(): Promise<void> {
+export async function initEditorWindow(callbacks?: WindowCallbacks): Promise<void> {
+  if (callbacks?.onOpen) onWindowOpen = callbacks.onOpen;
+  if (callbacks?.onClose) onWindowClose = callbacks.onClose;
   await ensureServer();
 }
 
@@ -267,15 +201,18 @@ export async function showEditorWindow(): Promise<void> {
 
   const frame = getWindowFrame("editor");
   log.info("window.creating", frame);
-  editorWindow = new BrowserWindow({
-    title: "Prompt Editor",
-    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
-    url: `http://localhost:${port}/`,
-    html: null,
-    titleBarStyle: "hidden",
-    transparent: true,
-  });
+  onWindowOpen();
+  editorWindow = createCustomWindow(
+    "Prompt Editor",
+    { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
+    `http://localhost:${port}/`,
+    { transparent: false },
+  );
 
   bindWindowStatePersistence(editorWindow, "editor");
+  editorWindow.on("close", () => {
+    editorWindow = null;
+    onWindowClose();
+  });
   showWindowWhenReady(editorWindow, log, "window");
 }
