@@ -6,6 +6,9 @@ export default {
     identifier: "sh.blackboard.assistant",
     version: "0.1.0",
   },
+  scripts: {
+    postBuild: "scripts/windows-hide-console.ts",
+  },
   runtime: {
     exitOnLastWindowClosed: false,
   },

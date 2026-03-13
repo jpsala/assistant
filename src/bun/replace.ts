@@ -8,7 +8,7 @@
  * Also exports showConfirmDialog() for @confirm:true prompts.
  */
 
-import { captureSelectedText, pasteText } from "./ffi";
+import { captureSelectedText, pasteText, selectAllText } from "./ffi";
 import { complete } from "./llm";
 import { getSettings } from "./settings";
 import type { Prompt } from "./prompts";
@@ -109,7 +109,14 @@ export async function silentReplace(
     });
   };
 
-  const inputText = captureResult.text.trim();
+  let inputText = captureResult.text.trim();
+  const effectiveSelectAll = prompt.selectAllIfEmpty ?? settings.selectAllIfEmpty;
+  if (!inputText && effectiveSelectAll) {
+    notify("capturing", "Nothing selected - selecting all text");
+    await selectAllText(captureResult.hwnd);
+    captureResult = await captureSelectedText(captureResult.hwnd);
+    inputText = captureResult.text.trim();
+  }
   if (!inputText) {
     log.warn("capture.empty", { promptName: prompt.name });
     updateHwnd("error", "No text is selected");

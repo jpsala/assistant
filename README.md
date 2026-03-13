@@ -1,12 +1,8 @@
 # Assistant
 
-Assistant es una app de Windows para trabajar sobre texto seleccionado usando prompts y chat contextual.
+Assistant es una app de escritorio para trabajar sobre texto seleccionado usando prompts y chat contextual.
 
 La idea es simple: seleccionás texto en cualquier aplicación, llamás a Assistant con un hotkey y decidís si querés transformar ese texto con un prompt, iterar en un chat, o guardar el resultado para usarlo después.
-
-Guía rápida online:
-
-- `https://md.jpsala.dev/view?guide=ai-assistant&f=DOC/README.md`
 
 ## Qué problema resuelve
 

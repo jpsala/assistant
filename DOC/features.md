@@ -53,7 +53,7 @@ Permite:
 
 ## Tray
 
-La app vive principalmente en el tray de Windows.
+La app vive principalmente en el tray del sistema.
 
 Desde el tray se puede:
 

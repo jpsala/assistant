@@ -21,6 +21,7 @@
 
 import { join, resolve } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { createLogger } from "./logger";
 
@@ -38,6 +39,7 @@ export type Prompt = {
   model: string | null;
   category: string | null;
   confirm: boolean;
+  selectAllIfEmpty: boolean | null;
   filePath: string;
 };
 
@@ -90,6 +92,11 @@ function parsePromptFile(filePath: string, content: string): Prompt {
     model: meta["model"] ?? null,
     category: meta["category"] ?? null,
     confirm: meta["confirm"] === "true",
+    selectAllIfEmpty: meta["selectallifempty"] === "true"
+      ? true
+      : meta["selectallifempty"] === "false"
+        ? false
+        : null,
     filePath,
   };
 }
@@ -185,6 +192,7 @@ export async function savePrompt(prompt: Prompt): Promise<string> {
   if (prompt.model) lines.push(`@model:${prompt.model}`);
   if (prompt.category) lines.push(`@category:${prompt.category}`);
   if (prompt.confirm) lines.push(`@confirm:true`);
+  if (prompt.selectAllIfEmpty !== null) lines.push(`@selectallifempty:${prompt.selectAllIfEmpty}`);
   lines.push("", prompt.body);
 
   await Bun.write(filePath, lines.join("\n"));
@@ -196,8 +204,7 @@ export async function deletePrompt(name: string): Promise<boolean> {
   const prompt = currentPrompts.get(name);
   if (!prompt || !existsSync(prompt.filePath)) return false;
   try {
-    const { $ } = await import("bun");
-    await $`rm -f ${prompt.filePath}`;
+    await rm(prompt.filePath, { force: true });
     return true;
   } catch {
     return false;

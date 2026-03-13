@@ -1,21 +1,35 @@
 import { resolve } from "node:path";
 import { Tray } from "electrobun/bun";
-import { formatHotkeyForDisplay, registerHotkey, unregisterHotkey, unregisterAll, updateHotkey } from "./hotkeys";
+import {
+  formatHotkeyForDisplay,
+  getRegisteredHotkeys,
+  setChordHintCallbacks,
+  registerHotkeyDetailed,
+  unregisterHotkey,
+  unregisterAll,
+  updateHotkeyDetailed,
+} from "./hotkeys";
+import { hideChordHint, initChordHint, showChordHint } from "./chord-hint";
 import { initPrompts, type PromptMap } from "./prompts";
 import { loadSettings, getSettings, type Settings } from "./settings";
 import { silentReplace, setToastCallback, type ReplaceResult } from "./replace";
 import { handleReplaceStatus } from "./feedback";
 import { showPicker, updatePickerPrompts, initPickerServer } from "./picker";
-import { initMainWindow, showMainWindow } from "./mainview-window";
+import { captureSelectedText, selectAllText } from "./ffi";
+import { initMainWindow, showMainWindow, showMainWindowWithContext } from "./mainview-window";
 import { initSettingsWindow, showSettingsWindow } from "./settings-window";
 import { initEditorWindow, showEditorWindow } from "./editor-window";
 import { getGuideUrl } from "./guide-url";
 import { createLogger, getLogFilePath, resetLogFile } from "./logger";
 import { syncLaunchAtStartup } from "./startup";
+import { hideWindowsConsole } from "./windows-console";
 
+hideWindowsConsole();
 const log = createLogger("startup");
 resetLogFile();
 log.info("session.started", { logFile: getLogFilePath() });
+
+setChordHintCallbacks(showChordHint, hideChordHint);
 
 // ─── Boot sequence ────────────────────────────────────────────────────────────
 
@@ -131,8 +145,48 @@ tray.on("tray-clicked", (event: any) => {
 // ─── Prompt hotkeys ───────────────────────────────────────────────────────────
 
 let activePromptHotkeys = new Set<string>();
+let currentPrompts: PromptMap = new Map();
+let hotkeyPauseDepth = 0;
+
+function pauseHotkeys(): void {
+  hotkeyPauseDepth += 1;
+  if (hotkeyPauseDepth === 1) {
+    unregisterAll();
+    log.info("hotkeys.paused");
+    return;
+  }
+  log.info("hotkeys.pause_nested", { depth: hotkeyPauseDepth });
+}
+
+function resumeHotkeys(): void {
+  if (hotkeyPauseDepth === 0) {
+    log.warn("hotkeys.resume_ignored_already_zero");
+    return;
+  }
+
+  hotkeyPauseDepth -= 1;
+  if (hotkeyPauseDepth > 0) {
+    log.info("hotkeys.resume_deferred", { depth: hotkeyPauseDepth });
+    return;
+  }
+
+  applySystemHotkeys(getSettings());
+  applyPromptHotkeys(currentPrompts);
+  log.info("hotkeys.resumed");
+}
+
+function areHotkeysPaused(): boolean {
+  return hotkeyPauseDepth > 0;
+}
 
 function applyPromptHotkeys(prompts: PromptMap): void {
+  currentPrompts = prompts;
+
+  if (areHotkeysPaused()) {
+    log.debug("prompt_hotkeys.apply_skipped_paused");
+    return;
+  }
+
   for (const name of activePromptHotkeys) {
     if (!prompts.has(name)) {
       unregisterHotkey(`prompt:${name}`);
@@ -146,10 +200,30 @@ function applyPromptHotkeys(prompts: PromptMap): void {
     const key = `prompt:${name}`;
     if (activePromptHotkeys.has(name)) unregisterHotkey(key);
 
-    const ok = registerHotkey(key, prompt.hotkey, (context) => {
+    const result = registerHotkeyDetailed(key, prompt.hotkey, (context) => {
       log.info("prompt.hotkey_triggered", { name, hotkey: prompt.hotkey });
       if (prompt.confirm) {
-        log.info("prompt.confirm_not_implemented", { name });
+        (async () => {
+          const settings = getSettings();
+          let captured = {
+            text: context?.preCaptured?.text ?? "",
+            hwnd: context?.preCaptured?.hwnd ?? null,
+            savedClipboard: context?.preCaptured?.savedClipboard ?? null,
+          };
+          const effectiveSelectAll = prompt.selectAllIfEmpty ?? settings.selectAllIfEmpty;
+          if (!captured.text.trim() && effectiveSelectAll) {
+            await selectAllText(captured.hwnd);
+            const recaptured = await captureSelectedText(captured.hwnd);
+            captured = {
+              text: recaptured.text,
+              hwnd: recaptured.hwnd,
+              savedClipboard: recaptured.savedClipboard,
+            };
+          }
+          await showMainWindowWithContext(captured, prompt.name);
+        })().catch((e) =>
+          log.error("prompt.open_chat_failed", { name, error: e })
+        );
         return;
       }
       silentReplace(prompt, {
@@ -160,12 +234,25 @@ function applyPromptHotkeys(prompts: PromptMap): void {
       }).catch((e) =>
         log.error("prompt.replace_failed", { name, error: e })
       );
-    });
+    }, prompt.name);
 
-    if (ok) {
+    if (result.ok) {
       activePromptHotkeys.add(name);
+      log.info("prompt.hotkey_registered", {
+        name,
+        spec: prompt.hotkey,
+        normalized: result.normalized,
+        kind: result.kind,
+      });
     } else {
-      log.warn("prompt.hotkey_register_failed", { name, hotkey: prompt.hotkey });
+      log.warn("prompt.hotkey_register_failed", {
+        name,
+        hotkey: prompt.hotkey,
+        reason: result.reason,
+        owner: result.owner,
+        normalized: result.normalized,
+        errors: result.errors,
+      });
     }
   }
 }
@@ -186,26 +273,56 @@ function handleReload(): void {
   log.info("hotkey.reload_triggered");
 }
 
+function applySystemHotkey(name: string, spec: string, cb: () => void): void {
+  const result = updateHotkeyDetailed(name, spec, cb);
+  if (result.ok) {
+    log.info("system_hotkey_registered", {
+      name,
+      spec,
+      normalized: result.normalized,
+      kind: result.kind,
+    });
+    return;
+  }
+
+  log.warn("system_hotkey_register_failed", {
+    name,
+    spec,
+    reason: result.reason,
+    owner: result.owner,
+    normalized: result.normalized,
+    errors: result.errors,
+  });
+}
+
 function applySystemHotkeys(settings: Settings): void {
+  if (areHotkeysPaused()) {
+    log.debug("system_hotkeys.apply_skipped_paused");
+    return;
+  }
+
   if (settings.hotkeys.promptChat) {
-    updateHotkey("promptChat", settings.hotkeys.promptChat, handlePromptChat);
+    applySystemHotkey("promptChat", settings.hotkeys.promptChat, handlePromptChat);
   } else {
     unregisterHotkey("promptChat");
   }
 
   if (settings.hotkeys.promptPicker) {
-    updateHotkey("promptPicker", settings.hotkeys.promptPicker, handlePromptPicker);
+    applySystemHotkey("promptPicker", settings.hotkeys.promptPicker, handlePromptPicker);
   } else {
     unregisterHotkey("promptPicker");
   }
 
   if (settings.hotkeys.reload) {
-    updateHotkey("reload", settings.hotkeys.reload, handleReload);
+    applySystemHotkey("reload", settings.hotkeys.reload, handleReload);
   } else {
     unregisterHotkey("reload");
   }
 
-  log.info("system_hotkeys.updated", settings.hotkeys);
+  log.info("system_hotkeys.updated", {
+    ...settings.hotkeys,
+    registered: getRegisteredHotkeys(),
+  });
 }
 
 applySystemHotkeys(getSettings());
@@ -216,13 +333,20 @@ const prompts = await initPrompts((updated) => {
   applyPromptHotkeys(updated);
   updatePickerPrompts(updated);
 });
+currentPrompts = prompts;
 
 applyPromptHotkeys(prompts);
 updatePickerPrompts(prompts);
 
 // Start the picker HTTP server now.
-await initMainWindow();
+const hotkeyWindowCallbacks = {
+  onOpen: pauseHotkeys,
+  onClose: resumeHotkeys,
+};
+
+await initMainWindow(hotkeyWindowCallbacks);
 await initPickerServer();
+await initChordHint();
 await initSettingsWindow(async (nextSettings) => {
   applySystemHotkeys(nextSettings);
   updateTrayMenu(nextSettings);
@@ -231,8 +355,8 @@ await initSettingsWindow(async (nextSettings) => {
     provider: nextSettings.provider,
     model: nextSettings.model,
   });
-});
-await initEditorWindow();
+}, hotkeyWindowCallbacks);
+await initEditorWindow(hotkeyWindowCallbacks);
 
 if (!settings.onboarded) {
   log.info("onboarding.show_settings");

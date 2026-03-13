@@ -45,15 +45,11 @@ Explica cómo crear y mantener prompts propios.
 
 ### [Settings](settings.md)
 
-Explica cómo configurar provider, model, API keys, hotkeys y arranque con Windows.
+Explica cómo configurar provider, model, API keys, hotkeys y arranque con el sistema.
 
 ### [Ejemplos de uso](ejemplos-de-uso.md)
 
 Muestra casos concretos para entender el sistema más rápido.
-
-## Guía online
-
-- `https://md.jpsala.dev/view?guide=ai-assistant&f=DOC/README.md`
 
 ## Nota de mantenimiento
 

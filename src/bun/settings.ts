@@ -23,6 +23,7 @@ export type Settings = {
   maxTokens: number;
   feedbackStyle: "custom";
   startWithSystem: boolean;
+  selectAllIfEmpty: boolean;
 
   // System hotkeys
   hotkeys: {
@@ -33,10 +34,18 @@ export type Settings = {
 
   // Window sizes (persisted across sessions)
   windows: {
-    chat: { x: number; y: number; w: number; h: number };
+    chat: {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      contextTextHeight: number;
+      composerHeight: number;
+    };
     picker: { x: number; y: number; w: number; h: number };
     settings: { x: number; y: number; w: number; h: number };
     editor: { x: number; y: number; w: number; h: number };
+    lab: { x: number; y: number; w: number; h: number };
   };
 
   // First-run flag
@@ -50,16 +59,18 @@ const DEFAULTS: Settings = {
   maxTokens: 8192,
   feedbackStyle: "custom",
   startWithSystem: false,
+  selectAllIfEmpty: false,
   hotkeys: {
     promptChat: "Alt+Shift+W",
     promptPicker: "Alt+Shift+Space",
     reload: "",
   },
   windows: {
-    chat: { x: 220, y: 120, w: 700, h: 600 },
+    chat: { x: 220, y: 120, w: 700, h: 600, contextTextHeight: 110, composerHeight: 92 },
     picker: { x: 320, y: 180, w: 640, h: 460 },
     settings: { x: 360, y: 120, w: 720, h: 640 },
     editor: { x: 280, y: 80, w: 760, h: 680 },
+    lab: { x: 420, y: 140, w: 920, h: 640 },
   },
   onboarded: false,
 };

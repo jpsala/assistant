@@ -42,7 +42,7 @@ Defaults actuales:
 
 ### Launch on Login
 
-Hace que Assistant se inicie automáticamente cuando Windows inicia sesión.
+Hace que Assistant se inicie automáticamente cuando el sistema inicia sesión.
 
 ## Primer uso recomendado
 

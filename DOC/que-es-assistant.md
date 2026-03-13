@@ -2,7 +2,9 @@
 
 [Inicio](README.md) | [Features](features.md) | [Open Chat](open-chat.md) | [Prompt Picker](prompt-picker.md) | [Prompt Editor](prompt-editor.md) | [Settings](settings.md) | [Ejemplos de uso](ejemplos-de-uso.md)
 
-Assistant es una aplicación de Windows para trabajar sobre texto seleccionado usando prompts y chat contextual.
+Assistant es una aplicación de escritorio para trabajar sobre texto seleccionado usando prompts y chat contextual.
+
+El producto apunta a distribuirse en Windows, macOS y Linux, aunque algunos flujos pueden variar según la plataforma.
 
 En vez de copiar texto a mano hacia otra herramienta y volver a pegar el resultado, Assistant se integra al flujo normal de escritura.
 
