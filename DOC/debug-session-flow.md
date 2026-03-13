@@ -117,3 +117,19 @@ Este documento define el flow de trabajo para sesiones largas de debug en este r
 5. Si algo falla:
    - mirar `latest.log`
    - distinguir persistencia vs aplicación de frame vs runtime host
+
+## Cambio de foco - 2026-03-13
+
+- Se detectó un issue de arquitectura en chords de dos pasos:
+  - si el suffix se presiona muy rápido, a veces la tecla entra en la app activa antes de que Assistant la intercepte
+- Se decidió cambiar el foco de trabajo:
+  - dejar de perseguir fixes sueltos en hotkeys/chords
+  - diseñar e implementar un nuevo servicio de chords/which-key
+- Snapshot previo del estado actual:
+  - commit `225c701` `Snapshot current hotkey/window work before chord service redesign`
+- Documento principal del rediseño:
+  - `DOC/chord-service-redesign-plan.md`
+- Documento de arranque de próxima sesión:
+  - `DOC/next-session-chord-service-kickoff.md`
+- Próximo paso de implementación:
+  - crear el core `ChordService` como state machine desacoplada del backend nativo
