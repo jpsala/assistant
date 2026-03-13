@@ -30,13 +30,14 @@ const VK_CONTROL = 0x11;
 const VK_MENU    = 0x12; // Alt
 const VK_LWIN    = 0x5B;
 const VK_RWIN    = 0x5C;
+const VK_A = 0x41;
 const VK_C = 0x43;
 const VK_V = 0x56;
 const CF_UNICODETEXT = 13;
 const GMEM_MOVEABLE = 0x0002;
-const CAPTURE_COPY_ATTEMPTS = 3;
-const CAPTURE_POLL_INTERVAL_MS = 120;
-const CAPTURE_POLL_ROUNDS = 5;
+const CAPTURE_COPY_ATTEMPTS = 2;
+const CAPTURE_POLL_INTERVAL_MS = 75;
+const CAPTURE_POLL_ROUNDS = 4;
 const INPUT_UNION_OFFSET = 8;
 const MOUSEINPUT_DX_OFFSET = INPUT_UNION_OFFSET + 0;
 const MOUSEINPUT_DY_OFFSET = INPUT_UNION_OFFSET + 4;
@@ -137,7 +138,7 @@ function sendKeys(vk1: number, vk2: number): number {
  * that triggered this action. Without this, SendInput(Ctrl+C) after a Ctrl+Alt+F
  * hotkey sends Ctrl+Alt+C instead of Ctrl+C.
  */
-function releaseModifiers(): void {
+export function releaseModifiers(): void {
   const mods = [VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN];
   const buf = new Uint8Array(INPUT_SIZE * mods.length);
   const dv = new DataView(buf.buffer);
@@ -276,7 +277,7 @@ export async function captureSelectedText(targetHwnd?: unknown): Promise<Capture
     u32.BringWindowToTop(hwnd);
     u32.SetForegroundWindow(hwnd);
   }
-  await Bun.sleep(150);
+  await Bun.sleep(80);
 
   let text = "";
   for (let attempt = 1; attempt <= CAPTURE_COPY_ATTEMPTS; attempt++) {
@@ -284,7 +285,7 @@ export async function captureSelectedText(targetHwnd?: unknown): Promise<Capture
     if (hwnd && foregroundBeforeCopy !== hwnd) {
       u32.BringWindowToTop(hwnd);
       u32.SetForegroundWindow(hwnd);
-      await Bun.sleep(80);
+      await Bun.sleep(40);
     }
 
     clearClipboard();
@@ -312,7 +313,7 @@ export async function captureSelectedText(targetHwnd?: unknown): Promise<Capture
 
     if (attempt < CAPTURE_COPY_ATTEMPTS) {
       log.warn("capture.retrying", { hwnd, attempt, reason: "clipboard_empty" });
-      await Bun.sleep(120);
+      await Bun.sleep(60);
     }
   }
 
@@ -337,13 +338,24 @@ export async function pasteText(
     allowSetForegroundWindow();
     forceFocus(hwnd);
   }
-  await Bun.sleep(150);
+  await Bun.sleep(80);
 
   sendKeys(VK_CONTROL, VK_V);
-  await Bun.sleep(300);
+  await Bun.sleep(160);
 
   if (savedClipboard !== null) writeClipboard(savedClipboard);
   else clearClipboard();
+}
+
+export async function selectAllText(hwnd?: unknown): Promise<void> {
+  const target = hwnd ?? u32.GetForegroundWindow();
+  if (target) {
+    allowSetForegroundWindow();
+    forceFocus(target);
+  }
+  await Bun.sleep(40);
+  sendKeys(VK_CONTROL, VK_A);
+  await Bun.sleep(40);
 }
 
 export function getForegroundWindow(): unknown {

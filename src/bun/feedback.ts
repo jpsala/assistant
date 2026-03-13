@@ -15,8 +15,8 @@ function runPowerShell(script: string, event: string, meta: Record<string, unkno
   try {
     const encoded = encodePowerShell(script);
     Bun.spawn(
-      ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
-      { stdout: "ignore", stderr: "ignore" },
+      ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded],
+      { stdout: "ignore", stderr: "ignore", windowsHide: true, hideConsole: true },
     );
     log.info(event, meta);
   } catch (error) {

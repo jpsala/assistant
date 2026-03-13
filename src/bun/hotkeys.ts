@@ -7,7 +7,7 @@
  */
 
 import { GlobalShortcut } from "electrobun/bun";
-import { captureSelectedText, getForegroundWindow, type CaptureResult } from "./ffi";
+import { captureSelectedText, getForegroundWindow, releaseModifiers, type CaptureResult } from "./ffi";
 
 // ─── Format conversion ────────────────────────────────────────────────────────
 
@@ -19,38 +19,159 @@ import { captureSelectedText, getForegroundWindow, type CaptureResult } from "./
  *
  * Also accepts friendly format already (Alt+Shift+W) — returned as-is.
  */
-export function ahkToAccelerator(spec: string): string {
-  // Already friendly format (contains word "Alt", "Ctrl", "Shift", "Meta")
-  if (/[A-Z][a-z]/.test(spec)) return spec;
+const MODIFIER_MAP = new Map<string, string>([
+  ["^", "Ctrl"],
+  ["!", "Alt"],
+  ["+", "Shift"],
+  ["#", "Meta"],
+]);
 
-  const parts: string[] = [];
-  let i = 0;
-  while (i < spec.length) {
-    const ch = spec[i];
-    switch (ch) {
-      case "!":
-        parts.push("Alt");
-        i++;
-        break;
-      case "+":
-        parts.push("Shift");
-        i++;
-        break;
-      case "^":
-        parts.push("Ctrl");
-        i++;
-        break;
-      case "#":
-        parts.push("Meta");
-        i++;
-        break;
-      default:
-        parts.push(ch.toUpperCase());
-        i++;
-        break;
+const FRIENDLY_MODIFIER_ALIASES = new Map<string, string>([
+  ["ctrl", "Ctrl"],
+  ["control", "Ctrl"],
+  ["alt", "Alt"],
+  ["shift", "Shift"],
+  ["meta", "Meta"],
+  ["win", "Meta"],
+  ["cmd", "Meta"],
+  ["super", "Meta"],
+]);
+
+const KEY_ALIASES = new Map<string, string>([
+  ["esc", "Esc"],
+  ["escape", "Esc"],
+  ["space", "Space"],
+  ["enter", "Enter"],
+  ["tab", "Tab"],
+  ["backspace", "Backspace"],
+  ["delete", "Delete"],
+  ["del", "Delete"],
+  ["insert", "Insert"],
+  ["ins", "Insert"],
+  ["up", "Up"],
+  ["down", "Down"],
+  ["left", "Left"],
+  ["right", "Right"],
+  ["home", "Home"],
+  ["end", "End"],
+  ["pgup", "PgUp"],
+  ["pageup", "PgUp"],
+  ["pgdn", "PgDn"],
+  ["pagedown", "PgDn"],
+]);
+
+export type HotkeyValidationResult = {
+  ok: boolean;
+  kind: "single" | "chord";
+  normalized: string;
+  errors: string[];
+  prefix?: string;
+  suffix?: string;
+};
+
+export type HotkeyRegistrationResult = {
+  ok: boolean;
+  reason?: "invalid" | "already_registered";
+  owner?: string;
+  normalized: string;
+  kind: "single" | "chord";
+  errors: string[];
+};
+
+type RegisteredHotkeyInfo = {
+  name: string;
+  spec: string;
+  normalized: string;
+  kind: "single" | "chord";
+  accelerators: string[];
+};
+
+type ChordHintShowFn = (prefix: string, entries: { key: string; label: string }[]) => void;
+
+let hintShow: ChordHintShowFn = () => {};
+let hintHide: () => void = () => {};
+
+export function setChordHintCallbacks(show: ChordHintShowFn, hide: () => void): void {
+  hintShow = show;
+  hintHide = hide;
+}
+
+function normalizeFriendlyToken(token: string): string {
+  const trimmed = token.trim();
+  if (!trimmed) return "";
+  const modifier = FRIENDLY_MODIFIER_ALIASES.get(trimmed.toLowerCase());
+  if (modifier) return modifier;
+  const keyAlias = KEY_ALIASES.get(trimmed.toLowerCase());
+  if (keyAlias) return keyAlias;
+  if (/^f\d{1,2}$/i.test(trimmed)) return trimmed.toUpperCase();
+  if (trimmed.length === 1) return trimmed.toUpperCase();
+  return trimmed;
+}
+
+function normalizeSingleSpec(spec: string): string {
+  const trimmed = spec.trim();
+  if (!trimmed) return "";
+
+  const isAhkStyle =
+    !trimmed.includes("->") &&
+    !trimmed.includes(",") &&
+    /^[!^+#]*[A-Za-z0-9]+$/i.test(trimmed);
+
+  if (isAhkStyle) {
+    const modifiers: string[] = [];
+    let key = "";
+    for (const ch of trimmed) {
+      const modifier = MODIFIER_MAP.get(ch);
+      if (modifier) {
+        if (!modifiers.includes(modifier)) modifiers.push(modifier);
+        continue;
+      }
+      key += ch;
     }
+    const normalizedKey = normalizeFriendlyToken(key);
+    return [...modifiers, normalizedKey].filter(Boolean).join("+");
   }
-  return parts.join("+");
+
+  return trimmed
+    .split("+")
+    .map((token) => normalizeFriendlyToken(token))
+    .filter(Boolean)
+    .join("+");
+}
+
+function validateSingleSpec(spec: string, role: "single" | "chord-prefix" | "chord-suffix"): string[] {
+  const errors: string[] = [];
+  const normalized = normalizeSingleSpec(spec);
+  if (!normalized) {
+    errors.push("Hotkey is empty.");
+    return errors;
+  }
+
+  const tokens = normalized.split("+").filter(Boolean);
+  const modifiers = tokens.filter((token) => FRIENDLY_MODIFIER_ALIASES.has(token.toLowerCase()));
+  const keys = tokens.filter((token) => !FRIENDLY_MODIFIER_ALIASES.has(token.toLowerCase()));
+
+  if (keys.length === 0) {
+    errors.push("Hotkey needs a non-modifier key.");
+  }
+  if (keys.length > 1) {
+    errors.push("Only one non-modifier key is supported per step.");
+  }
+  if (role !== "chord-suffix" && modifiers.length === 0) {
+    errors.push("Global hotkeys should include at least one modifier.");
+  }
+  return errors;
+}
+
+function findOwnerForAccelerator(accelerator: string, excludeName?: string): string | undefined {
+  for (const [name, keys] of registered) {
+    if (name !== excludeName && keys.includes(accelerator)) return name;
+  }
+  return undefined;
+}
+
+export function ahkToAccelerator(spec: string): string {
+  return normalizeSingleSpec(spec);
 }
 
 export function formatHotkeyForDisplay(spec: string): string {
@@ -98,12 +219,19 @@ type HotkeyCallback = (context?: HotkeyTriggerContext) => void | Promise<void>;
 
 // name → accelerator (for cleanup)
 const registered = new Map<string, string[]>();
+const registeredInfo = new Map<string, RegisteredHotkeyInfo>();
 
-// chord prefix → { suffix → callback, timeoutId }
+type ChordAction = {
+  cb: HotkeyCallback;
+  label: string;
+};
+
+// chord prefix → { suffix → callback, timers }
 type ChordState = {
-  actions: Map<string, HotkeyCallback>;
+  actions: Map<string, ChordAction>;
   timer: Timer | null;
-  preCapture: Promise<CaptureResult | null> | null;
+  hintTimer: Timer | null;
+  sourceHwnd: unknown;
 };
 const chordPrefixes = new Map<string, ChordState>();
 
@@ -128,60 +256,89 @@ function _unregister(accelerator: string): void {
 // intercepting normal typing when not in chord mode.
 
 const CHORD_TIMEOUT_MS = 900;
+const CHORD_HINT_DELAY_MS = 400;
+const CHORD_HINT_TIMEOUT_MS = 5000;
+
+function clearChordActivation(state: ChordState): void {
+  for (const suf of state.actions.keys()) {
+    GlobalShortcut.unregister(suf);
+  }
+  if (state.timer !== null) {
+    clearTimeout(state.timer);
+    state.timer = null;
+  }
+  if (state.hintTimer !== null) {
+    clearTimeout(state.hintTimer);
+    state.hintTimer = null;
+  }
+  hintHide();
+  state.sourceHwnd = null;
+}
 
 function registerChord(
   name: string,
   prefix: string,
   suffix: string,
-  cb: HotkeyCallback
+  cb: HotkeyCallback,
+  label: string
 ): boolean {
   // Ensure prefix is registered
   if (!chordPrefixes.has(prefix)) {
-    const state: ChordState = { actions: new Map(), timer: null, preCapture: null };
+    const state: ChordState = { actions: new Map(), timer: null, hintTimer: null, sourceHwnd: null };
     chordPrefixes.set(prefix, state);
 
     const ok = _register(prefix, () => {
+      releaseModifiers();
       const s = chordPrefixes.get(prefix)!;
-      const sourceHwnd = getForegroundWindow();
-      s.preCapture = (async () => {
-        try {
-          return await captureSelectedText(sourceHwnd);
-        } catch {
-          return null;
-        }
-      })();
+      s.sourceHwnd = getForegroundWindow();
 
-      // Cancel existing timer
-      if (s.timer !== null) clearTimeout(s.timer);
+      if (s.timer !== null) {
+        clearTimeout(s.timer);
+        s.timer = null;
+      }
+      if (s.hintTimer !== null) {
+        clearTimeout(s.hintTimer);
+        s.hintTimer = null;
+      }
 
       // Register all suffix keys temporarily
-      for (const [suf, action] of s.actions) {
+      for (const [suf, { cb: action }] of s.actions) {
         GlobalShortcut.register(suf, async () => {
-          // Unregister suffix immediately (one-shot)
-          GlobalShortcut.unregister(suf);
-          if (s.timer !== null) clearTimeout(s.timer);
-          s.timer = null;
-          const preCaptured = await s.preCapture;
-          s.preCapture = null;
+          // One-shot chord: clear every temporary suffix, not just the one pressed.
+          const sourceHwnd = s.sourceHwnd;
+          clearChordActivation(s);
+          let preCaptured: CaptureResult | null = null;
+          try {
+            preCaptured = await captureSelectedText(sourceHwnd);
+          } catch {
+            preCaptured = null;
+          }
           await action(preCaptured ? { preCaptured } : undefined);
         });
       }
 
-      // Timeout: unregister suffix keys
-      s.timer = setTimeout(() => {
-        for (const suf of s.actions.keys()) {
-          GlobalShortcut.unregister(suf);
+      s.hintTimer = setTimeout(() => {
+        s.hintTimer = null;
+        const entries = Array.from(s.actions.entries()).map(([key, action]) => ({
+          key,
+          label: action.label,
+        }));
+        hintShow(prefix, entries);
+        if (s.timer !== null) {
+          clearTimeout(s.timer);
+          s.timer = setTimeout(() => clearChordActivation(s), CHORD_HINT_TIMEOUT_MS);
         }
-        s.preCapture = null;
-        s.timer = null;
-      }, CHORD_TIMEOUT_MS);
+      }, CHORD_HINT_DELAY_MS);
+
+      // Timeout: unregister suffix keys
+      s.timer = setTimeout(() => clearChordActivation(s), CHORD_TIMEOUT_MS);
     });
 
     if (!ok) return false;
   }
 
   const state = chordPrefixes.get(prefix)!;
-  state.actions.set(suffix, cb);
+  state.actions.set(suffix, { cb, label });
 
   // Track for cleanup
   const existing = registered.get(name) ?? [];
@@ -200,18 +357,122 @@ function registerChord(
 export function registerHotkey(
   name: string,
   spec: string,
-  cb: HotkeyCallback
+  cb: HotkeyCallback,
+  label?: string
 ): boolean {
+  return registerHotkeyDetailed(name, spec, cb, label).ok;
+}
+
+export function validateHotkeySpec(spec: string): HotkeyValidationResult {
   const chord = parseChord(spec);
 
   if (chord) {
-    return registerChord(name, chord.prefix, chord.suffix, cb);
+    const errors = [
+      ...validateSingleSpec(chord.prefix, "chord-prefix"),
+      ...validateSingleSpec(chord.suffix, "chord-suffix"),
+    ];
+    return {
+      ok: errors.length === 0,
+      kind: "chord",
+      normalized: `${chord.prefix} -> ${chord.suffix}`,
+      prefix: chord.prefix,
+      suffix: chord.suffix,
+      errors,
+    };
   }
 
-  const acc = ahkToAccelerator(spec);
+  const normalized = ahkToAccelerator(spec);
+  const errors = validateSingleSpec(normalized, "single");
+  return {
+    ok: errors.length === 0,
+    kind: "single",
+    normalized,
+    errors,
+  };
+}
+
+export function registerHotkeyDetailed(
+  name: string,
+  spec: string,
+  cb: HotkeyCallback,
+  label?: string
+): HotkeyRegistrationResult {
+  const validation = validateHotkeySpec(spec);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      reason: "invalid",
+      normalized: validation.normalized,
+      kind: validation.kind,
+      errors: validation.errors,
+    };
+  }
+
+  if (validation.kind === "chord") {
+    const prefixOwner = findOwnerForAccelerator(validation.prefix!, name);
+    if (prefixOwner && !chordPrefixes.has(validation.prefix!)) {
+      return {
+        ok: false,
+        reason: "already_registered",
+        owner: prefixOwner,
+        normalized: validation.normalized,
+        kind: validation.kind,
+        errors: [],
+      };
+    }
+
+    const ok = registerChord(name, validation.prefix!, validation.suffix!, cb, label ?? name);
+    if (ok) {
+      registeredInfo.set(name, {
+        name,
+        spec,
+        normalized: validation.normalized,
+        kind: "chord",
+        accelerators: [validation.prefix!, validation.suffix!],
+      });
+    }
+    return {
+      ok,
+      reason: ok ? undefined : "already_registered",
+      owner: ok ? undefined : findOwnerForAccelerator(validation.prefix!, name),
+      normalized: validation.normalized,
+      kind: validation.kind,
+      errors: [],
+    };
+  }
+
+  const acc = validation.normalized;
+  const owner = findOwnerForAccelerator(acc, name);
+  if (owner || GlobalShortcut.isRegistered(acc)) {
+    return {
+      ok: false,
+      reason: "already_registered",
+      owner,
+      normalized: acc,
+      kind: "single",
+      errors: [],
+    };
+  }
+
   const ok = _register(acc, cb);
-  if (ok) registered.set(name, [acc]);
-  return ok;
+  if (ok) {
+    registered.set(name, [acc]);
+    registeredInfo.set(name, {
+      name,
+      spec,
+      normalized: acc,
+      kind: "single",
+      accelerators: [acc],
+    });
+  }
+  return {
+    ok,
+    reason: ok ? undefined : "already_registered",
+    owner,
+    normalized: acc,
+    kind: "single",
+    errors: [],
+  };
 }
 
 /** Unregister a named hotkey (regular or chord) */
@@ -229,6 +490,8 @@ export function unregisterHotkey(name: string): void {
         // If no more suffixes for this prefix, unregister the prefix too
         if (state.actions.size === 0) {
           _unregister(prefix);
+          if (state.timer !== null) clearTimeout(state.timer);
+          if (state.hintTimer !== null) clearTimeout(state.hintTimer);
           chordPrefixes.delete(prefix);
         }
       }
@@ -238,12 +501,15 @@ export function unregisterHotkey(name: string): void {
   }
 
   registered.delete(name);
+  registeredInfo.delete(name);
 }
 
 /** Unregister all hotkeys */
 export function unregisterAll(): void {
   GlobalShortcut.unregisterAll();
   registered.clear();
+  registeredInfo.clear();
+  hintHide();
   chordPrefixes.clear();
 }
 
@@ -256,8 +522,22 @@ export function isRegistered(name: string): boolean {
 export function updateHotkey(
   name: string,
   spec: string,
-  cb: HotkeyCallback
+  cb: HotkeyCallback,
+  label?: string
 ): boolean {
+  return updateHotkeyDetailed(name, spec, cb, label).ok;
+}
+
+export function updateHotkeyDetailed(
+  name: string,
+  spec: string,
+  cb: HotkeyCallback,
+  label?: string
+): HotkeyRegistrationResult {
   unregisterHotkey(name);
-  return registerHotkey(name, spec, cb);
+  return registerHotkeyDetailed(name, spec, cb, label);
+}
+
+export function getRegisteredHotkeys(): RegisteredHotkeyInfo[] {
+  return Array.from(registeredInfo.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
