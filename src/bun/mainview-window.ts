@@ -1,16 +1,22 @@
 import { resolve } from "node:path";
 import { BrowserWindow } from "electrobun/bun";
+import { createCustomWindow, handleCustomWindowRequest } from "./framework/custom-window";
 import {
   allowSetForegroundWindow,
   captureSelectedText,
+  clickToFocus,
+  findWindowByTitle,
+  focusWebView2Child,
+  forceFocus,
   getForegroundWindow,
+  logChildWindows,
   pasteText,
   writeClipboard,
 } from "./ffi";
 import { streamCompletion, type Message } from "./llm";
 import { createLogger } from "./logger";
 import { getPrompts, type Prompt } from "./prompts";
-import { getSettings } from "./settings";
+import { getSettings, saveSettings } from "./settings";
 import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
 import { showWindowWhenReady } from "./window-show";
 
@@ -19,23 +25,33 @@ const log = createLogger("mainview");
 let mainWindow: BrowserWindow | null = null;
 let server: ReturnType<typeof Bun.serve> | null = null;
 let serverPort: number | null = null;
+let onWindowOpen: () => void = () => {};
+let onWindowClose: () => void = () => {};
 let sourceHwnd: unknown = null;
 let originalText = "";
 let captureSequence = 0;
+let pendingPromptName = "";
+let mainWindowHwnd: unknown = null;
 
 const builtViewDir = resolve(import.meta.dir, "../views/mainview");
 const srcViewDir = resolve(process.cwd(), "src/views/mainview");
 
 type ChatStatePayload = {
   originalText: string;
+  hasSourceApp: boolean;
   provider: string;
   model: string;
+  layout: {
+    contextTextHeight: number;
+    composerHeight: number;
+  };
   prompts: Array<{
     name: string;
     provider: string;
     model: string;
     body: string;
   }>;
+  selectedPromptName?: string;
 };
 
 async function fileExists(path: string): Promise<boolean> {
@@ -101,9 +117,15 @@ function getChatStatePayload(): ChatStatePayload {
   const settings = getSettings();
   return {
     originalText,
+    hasSourceApp: Boolean(sourceHwnd),
     provider: settings.provider,
     model: settings.model,
+    layout: {
+      contextTextHeight: settings.windows.chat.contextTextHeight,
+      composerHeight: settings.windows.chat.composerHeight,
+    },
     prompts: serializePrompts(),
+    selectedPromptName: pendingPromptName || undefined,
   };
 }
 
@@ -118,26 +140,67 @@ function syncStateToWindow(): void {
     mainWindow.webview.executeJavascript(
       `window.__MAINVIEW_APPLY_STATE_FROM_B64?.(${JSON.stringify(payload)});`,
     );
+    mainWindow.webview.executeJavascript("window.__MAINVIEW_FOCUS_COMPOSER__?.();");
+    setTimeout(() => {
+      try {
+        mainWindow?.webview.executeJavascript("window.__MAINVIEW_FOCUS_COMPOSER__?.();");
+      } catch {}
+    }, 120);
     log.info("window.state_synced", {
       chars: originalText.length,
       hasText: Boolean(originalText.trim()),
+      selectedPromptName: pendingPromptName || null,
     });
+    pendingPromptName = "";
   } catch (error) {
     log.warn("window.state_sync_failed", { error });
   }
 }
 
+function focusChatWindowNative(): void {
+  (async () => {
+    allowSetForegroundWindow();
+    for (let i = 0; i < 20; i++) {
+      await Bun.sleep(100);
+      const hwnd = findWindowByTitle("Prompt Chat");
+      if (!hwnd) continue;
+
+      mainWindowHwnd = hwnd;
+      forceFocus(hwnd);
+      await Bun.sleep(300);
+
+      const focused = focusWebView2Child(hwnd);
+      if (!focused) {
+        logChildWindows(hwnd);
+        clickToFocus(hwnd, 120);
+      }
+
+      try {
+        mainWindow?.webview.executeJavascript("window.__MAINVIEW_FOCUS_COMPOSER__?.();");
+      } catch {}
+
+      log.info("window.native_focus_applied", { hwnd, focused });
+      break;
+    }
+  })().catch((error) => {
+    log.warn("window.native_focus_failed", { error });
+  });
+}
+
 function createMainWindow(port: number): BrowserWindow {
   const frame = getWindowFrame("chat");
-  const window = new BrowserWindow({
-    title: "Prompt Chat",
-    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
-    url: `http://localhost:${port}/`,
-    html: null,
-    titleBarStyle: "hidden",
-    transparent: true,
-  });
+  const window = createCustomWindow(
+    "Prompt Chat",
+    { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
+    `http://localhost:${port}/`,
+    { transparent: false },
+  );
 
+  window.on("close", () => {
+    mainWindow = null;
+    mainWindowHwnd = null;
+    onWindowClose();
+  });
   bindWindowStatePersistence(window, "chat");
   log.info("window.created", { frame });
   return window;
@@ -182,6 +245,7 @@ async function ensureServer(): Promise<number> {
         const body = await req.json() as {
           messages: Message[];
           promptName?: string;
+          selectedText?: string;
         };
 
         const settings = getSettings();
@@ -193,6 +257,10 @@ async function ensureServer(): Promise<number> {
         if (!apiKey) {
           return Response.json({ error: `Missing API key for ${provider}` }, { status: 400 });
         }
+
+        const selectedText = typeof body.selectedText === "string"
+          ? body.selectedText
+          : originalText;
 
         const stream = new ReadableStream({
           async start(controller) {
@@ -211,7 +279,7 @@ async function ensureServer(): Promise<number> {
                 model,
                 apiKey,
                 messages: body.messages,
-                systemPrompt: buildSystemPrompt(prompt, originalText),
+                systemPrompt: buildSystemPrompt(prompt, selectedText),
                 maxTokens: settings.maxTokens,
               },
               {
@@ -264,20 +332,44 @@ async function ensureServer(): Promise<number> {
         return new Response("ok");
       }
 
-      if (req.method === "POST" && path === "/close") {
-        if (mainWindow) {
-          try { mainWindow.close(); } catch {}
-          mainWindow = null;
+      // Use forceFocus (AttachThreadInput + SetForegroundWindow) for post-resize
+      // focus recapture — more reliable than the setAlwaysOnTop flip in the
+      // generic handleCustomWindowRequest handler.
+      if (req.method === "POST" && path === "/window/focus") {
+        const hwnd = mainWindowHwnd;
+        if (hwnd) {
+          allowSetForegroundWindow();
+          forceFocus(hwnd);
+          setTimeout(() => { focusWebView2Child(hwnd); }, 60);
+        } else {
+          try {
+            mainWindow?.show();
+            mainWindow?.focus();
+            mainWindow?.setAlwaysOnTop(true);
+            mainWindow?.setAlwaysOnTop(false);
+          } catch {}
         }
         return new Response("ok");
       }
 
-      if (req.method === "POST" && path === "/window/resize") {
-        const body = await req.json() as { width?: number; height?: number };
-        if (mainWindow && body.width && body.height) {
-          mainWindow.setSize(body.width, body.height);
-        }
-        return new Response("ok");
+      const handled = await handleCustomWindowRequest(req, path, () => mainWindow, log);
+      if (handled) return handled;
+
+      if (req.method === "POST" && path === "/layout") {
+        const body = await req.json() as { contextTextHeight?: number; composerHeight?: number };
+        const current = getSettings().windows.chat;
+        const next = {
+          ...current,
+          contextTextHeight: Math.max(72, Math.round(body.contextTextHeight ?? current.contextTextHeight)),
+          composerHeight: Math.max(72, Math.round(body.composerHeight ?? current.composerHeight)),
+        };
+        await saveSettings({
+          windows: {
+            ...getSettings().windows,
+            chat: next,
+          },
+        });
+        return Response.json(next);
       }
 
       if (req.method === "POST" && path === "/log") {
@@ -305,11 +397,17 @@ async function ensureServer(): Promise<number> {
   return serverPort;
 }
 
-export async function initMainWindow(): Promise<void> {
+export async function initMainWindow(callbacks?: {
+  onOpen?: () => void;
+  onClose?: () => void;
+}): Promise<void> {
+  if (callbacks?.onOpen) onWindowOpen = callbacks.onOpen;
+  if (callbacks?.onClose) onWindowClose = callbacks.onClose;
   await ensureServer();
 }
 
 export async function showMainWindow(): Promise<void> {
+  log.info("show.requested", { hasExistingWindow: Boolean(mainWindow) });
   const fg = getForegroundWindow();
   sourceHwnd = fg;
   originalText = "";
@@ -338,22 +436,72 @@ export async function showMainWindow(): Promise<void> {
   const port = await ensureServer();
 
   if (mainWindow) {
-    try {
-      log.info("window.reused");
-    } catch {
-      mainWindow = null;
-    }
-  }
-
-  if (!mainWindow) {
-    mainWindow = createMainWindow(port);
-    showWindowWhenReady(mainWindow, log, "window", () => syncStateToWindow());
+    // Reuse existing window — do NOT call onWindowOpen() here.
+    // It was called when the window was created; calling it again would
+    // increment hotkeyPauseDepth without a matching onWindowClose(), causing
+    // hotkeys to stay permanently paused after the window closes.
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.setAlwaysOnTop(true);
+    mainWindow.setAlwaysOnTop(false);
+    syncStateToWindow();
+    focusChatWindowNative();
+    log.info("window.reused");
     return;
   }
 
+  onWindowOpen();
+  try {
+    mainWindow = createMainWindow(port);
+    showWindowWhenReady(mainWindow, log, "window", () => {
+      syncStateToWindow();
+      focusChatWindowNative();
+    });
+    log.info("window.shown");
+  } catch (error) {
+    mainWindow = null;
+    onWindowClose();
+    throw error;
+  }
+}
+
+/**
+ * Open the chat window pre-loaded with already-captured text and a prompt pre-selected.
+ * Used by @confirm:true hotkeys — caller must capture text before calling this
+ * (to avoid losing focus to the chat window during capture).
+ */
+export async function showMainWindowWithContext(
+  captured: { text: string; hwnd: unknown; savedClipboard: string | null },
+  promptName: string,
+): Promise<void> {
+  sourceHwnd = captured.hwnd;
+  originalText = captured.text;
+  pendingPromptName = promptName;
+
+  const port = await ensureServer();
+
+  if (!mainWindow) {
+    onWindowOpen();
+    try {
+      mainWindow = createMainWindow(port);
+      showWindowWhenReady(mainWindow, log, "window", () => {
+        syncStateToWindow();
+        focusChatWindowNative();
+      });
+      return;
+    } catch (error) {
+      mainWindow = null;
+      onWindowClose();
+      throw error;
+    }
+  }
+
+  // Reuse existing window — do NOT call onWindowOpen() (same reason as showMainWindow).
   mainWindow.show();
+  mainWindow.focus();
   mainWindow.setAlwaysOnTop(true);
   mainWindow.setAlwaysOnTop(false);
   syncStateToWindow();
-  log.info("window.shown");
+  focusChatWindowNative();
+  log.info("window.shown_with_context", { promptName, chars: originalText.length });
 }
