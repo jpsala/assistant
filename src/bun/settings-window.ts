@@ -4,9 +4,9 @@ import { createLogger } from "./logger";
 import { getSettings, saveSettings, type Settings } from "./settings";
 import type { Provider } from "./prompts";
 import { getRegisteredHotkeys, validateHotkeySpec } from "./hotkeys";
-import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
+import { getWindowFrame } from "./window-state";
 import { showWindowWhenReady } from "./window-show";
-import { createCustomWindow, ensureWindowServer } from "./framework/custom-window";
+import { createPersistentCustomWindow, ensureWindowServer } from "./framework/custom-window";
 
 const log = createLogger("settings-window");
 
@@ -155,14 +155,13 @@ export async function showSettingsWindow(): Promise<void> {
   const frame = getWindowFrame("settings");
   log.info("window.creating", frame);
   onWindowOpen();
-  settingsWindow = createCustomWindow(
+  settingsWindow = createPersistentCustomWindow(
+    "settings",
     "Settings",
-    { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
     `http://localhost:${port}/`,
-    { transparent: false },
+    { transparent: false, logger: log },
   );
 
-  bindWindowStatePersistence(settingsWindow, "settings");
   settingsWindow.on("close", () => {
     settingsWindow = null;
     onWindowClose();

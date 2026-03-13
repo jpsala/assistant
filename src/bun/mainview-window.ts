@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { BrowserWindow } from "electrobun/bun";
-import { createCustomWindow, handleCustomWindowRequest } from "./framework/custom-window";
+import { createPersistentCustomWindow, handleCustomWindowRequest } from "./framework/custom-window";
 import {
   allowSetForegroundWindow,
   captureSelectedText,
@@ -17,7 +17,7 @@ import { streamCompletion, type Message } from "./llm";
 import { createLogger } from "./logger";
 import { getPrompts, type Prompt } from "./prompts";
 import { getSettings, saveSettings } from "./settings";
-import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
+import { getWindowFrame } from "./window-state";
 import { showWindowWhenReady } from "./window-show";
 
 const log = createLogger("mainview");
@@ -189,11 +189,11 @@ function focusChatWindowNative(): void {
 
 function createMainWindow(port: number): BrowserWindow {
   const frame = getWindowFrame("chat");
-  const window = createCustomWindow(
+  const window = createPersistentCustomWindow(
+    "chat",
     "Prompt Chat",
-    { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
     `http://localhost:${port}/`,
-    { transparent: false },
+    { transparent: false, logger: log },
   );
 
   window.on("close", () => {
@@ -201,7 +201,6 @@ function createMainWindow(port: number): BrowserWindow {
     mainWindowHwnd = null;
     onWindowClose();
   });
-  bindWindowStatePersistence(window, "chat");
   log.info("window.created", { frame });
   return window;
 }

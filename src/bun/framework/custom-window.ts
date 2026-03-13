@@ -1,6 +1,12 @@
 import { resolve } from "node:path";
 import { BrowserWindow, type BrowserWindowConstructorOptions } from "electrobun/bun";
 import type { createLogger } from "../logger";
+import {
+  bindWindowStatePersistence,
+  getWindowFrame,
+  type WindowKey,
+  type WindowPersistenceOptions,
+} from "../window-state";
 // @ts-ignore — Electrobun internal, not in public exports
 import { native, toCString } from "../../../node_modules/electrobun/dist/api/bun/proc/native";
 
@@ -257,6 +263,32 @@ export function createCustomWindow(
     url,
     transparent: options.transparent ?? true,
   });
+}
+
+type PersistentCustomWindowOptions = WindowPersistenceOptions & {
+  transparent?: boolean;
+  logger?: LoggerLike;
+  browserWindow?: Omit<BrowserWindowConstructorOptions, "title" | "frame" | "url" | "html" | "titleBarStyle" | "transparent">;
+};
+
+export function createPersistentCustomWindow(
+  key: WindowKey,
+  title: string,
+  url: string,
+  options: PersistentCustomWindowOptions = {},
+): BrowserWindow {
+  const frame = getWindowFrame(key);
+  const window = createHiddenTitlebarWindow({
+    ...(options.browserWindow ?? {}),
+    title,
+    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
+    url,
+    transparent: options.transparent ?? false,
+  });
+
+  bindWindowStatePersistence(window, key, options);
+  options.logger?.debug?.("window.restored_frame", { key, frame });
+  return window;
 }
 
 export async function handleCustomWindowRequest(

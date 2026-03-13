@@ -23,9 +23,9 @@ import { silentReplace } from "./replace";
 import { handleReplaceStatus } from "./feedback";
 import { captureSelectedText, getForegroundWindow, findWindowByTitle, forceFocus, focusWebView2Child, logChildWindows, pasteText, clickToFocus, allowSetForegroundWindow } from "./ffi";
 import { createLogger } from "./logger";
-import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
+import { getWindowFrame } from "./window-state";
 import { showWindowWhenReady } from "./window-show";
-import { handleCustomWindowRequest } from "./framework/custom-window";
+import { createPersistentCustomWindow, handleCustomWindowRequest } from "./framework/custom-window";
 
 const log = createLogger("picker");
 
@@ -337,17 +337,13 @@ export async function showPicker(): Promise<void> {
 
   log.info("window.creating", { port });
   const frame = getWindowFrame("picker");
-  _window = new BrowserWindow({
-    title: "Prompt Picker",
-    frame: { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
-    url: `http://localhost:${port}/`,
-    html: null,
-    titleBarStyle: "hidden",
+  _window = createPersistentCustomWindow("picker", "Prompt Picker", `http://localhost:${port}/`, {
     transparent: false,
-    rpc,
+    logger: log,
+    browserWindow: {
+      rpc,
+    },
   });
-
-  bindWindowStatePersistence(_window, "picker");
   _window.setAlwaysOnTop(true);
   showWindowWhenReady(_window, log, "window", () => {
     // Electrobun's focusWindow doesn't reliably give keyboard focus to WebView2

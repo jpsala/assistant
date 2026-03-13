@@ -8,10 +8,10 @@ import { BrowserWindow } from "electrobun/bun";
 import { fetchModels } from "./llm";
 import { createLogger } from "./logger";
 import { getSettings } from "./settings";
-import { bindWindowStatePersistence, getWindowFrame } from "./window-state";
+import { getWindowFrame } from "./window-state";
 import { showWindowWhenReady } from "./window-show";
 import { validateHotkeySpec } from "./hotkeys";
-import { createCustomWindow, ensureWindowServer } from "./framework/custom-window";
+import { createPersistentCustomWindow, ensureWindowServer } from "./framework/custom-window";
 import {
   getPrompts,
   savePrompt,
@@ -202,14 +202,13 @@ export async function showEditorWindow(): Promise<void> {
   const frame = getWindowFrame("editor");
   log.info("window.creating", frame);
   onWindowOpen();
-  editorWindow = createCustomWindow(
+  editorWindow = createPersistentCustomWindow(
+    "editor",
     "Prompt Editor",
-    { x: frame.x, y: frame.y, width: frame.w, height: frame.h },
     `http://localhost:${port}/`,
-    { transparent: false },
+    { transparent: false, logger: log },
   );
 
-  bindWindowStatePersistence(editorWindow, "editor");
   editorWindow.on("close", () => {
     editorWindow = null;
     onWindowClose();
