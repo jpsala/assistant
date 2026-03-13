@@ -225,3 +225,182 @@ Este documento define el flow de trabajo para sesiones largas de debug en este r
 5. Si todo sigue estable:
    - limpiar/degradar el camino viejo de chords
    - decidir si el backend actual queda como base productiva o necesita más hardening
+
+## Cierre de sesión - 2026-03-13 (Worker bootstrap chord backend)
+
+### Contexto de trabajo
+
+- Sesión enfocada en retomar el estado actual del rediseño de chords y validar si el backend Windows nuevo estaba realmente activo en `dev`.
+- Se trabajó primero en modo diagnóstico y después se aplicó fix puntual.
+
+### Hallazgos principales
+
+- El backend nuevo no estaba arrancando realmente en `dev`.
+- `latest.log` mostraba:
+  - `backend.hook_error`
+  - `chord.backend_start_failed`
+- La causa concreta era el bootstrap del worker:
+  - `WindowsKeyboardBackend` intentaba abrir `./windows-keyboard-hook-worker.ts` relativo al bundle en `build/dev-win-x64/.../Resources/app/bun`
+  - ese archivo no existe como artifact separado dentro del app bundle de dev
+- Resultado práctico:
+  - la app seguía registrando chords
+  - pero quedaba corriendo por el camino fallback/viejo
+  - o sea: el backend nuevo no era el path realmente validado
+
+### Fix aplicado
+
+- Se modificó `src/bun/windows-keyboard-backend.ts`.
+- Se agregó resolución explícita del worker entrypoint:
+  - prueba paths locales del bundle
+  - prueba paths directos desde `process.cwd()`
+  - recorre directorios padre desde `import.meta.dir` y desde `process.cwd()` hasta encontrar `src/bun/windows-keyboard-hook-worker.ts`
+- Se agregó log estructurado:
+  - `backend.worker_entrypoint_resolved`
+
+### Validación realizada
+
+- Tests corridos:
+  - `bun test src/bun/chord-service.test.ts src/bun/windows-keyboard-backend.test.ts`
+- Reinicio limpio de `dev` y validación por logs.
+- Resultado confirmado en `latest.log`:
+  - `session.started`
+  - `backend.worker_entrypoint_resolved`
+  - `backend.hook_started`
+  - `chord.backend_ready`
+- Esto confirma que el backend Windows nuevo ahora sí arranca en `dev`.
+
+### Estado actual al cerrar
+
+- El repo no quedó limpio:
+  - hay cambio local en `src/bun/windows-keyboard-backend.ts`
+- El problema de `ModuleNotFound` del worker quedó corregido para el flujo actual de `dev`.
+- El backend nuevo ya no falla al boot por no encontrar el worker.
+- Falta validación manual fuerte del comportamiento real de chords rápidos en apps externas.
+
+### Próximo paso concreto al retomar
+
+1. Leer este documento.
+2. Levantar `dev`.
+3. Probar chords rápidos reales en:
+   - Notepad
+   - navegador
+   - editor de texto
+4. Confirmar en `latest.log` estas trazas durante uso real:
+   - `backend.key_event`
+   - `chord_service.prefix_started`
+   - `chord_service.suffix_matched`
+5. Verificar especialmente:
+   - que el suffix rápido no se cuele en la app activa
+   - que `Esc` cancele bien
+   - que invalid key cancele bien
+   - que timeout limpie el estado
+6. Si la validación manual da bien:
+   - decidir cleanup del camino viejo/fallback de chords
+   - decidir si migrar más hotkeys al backend nuevo o endurecer primero el backend actual
+
+## Cierre de sesión - 2026-03-13 (Input Service master plan)
+
+### Contexto de trabajo
+
+- Sesión enfocada en reevaluar el rediseño de chords/hotkeys después de validar comportamiento real del backend Windows nuevo.
+- Se trabajó en modo diagnóstico, con foco en evidencias de `latest.log`, comportamiento global del teclado y definición de arquitectura futura.
+
+### Hallazgos principales
+
+- El backend Windows nuevo arranca en `dev`:
+  - `backend.worker_entrypoint_resolved`
+  - `backend.hook_started`
+  - `chord.backend_ready`
+- Aun arrancando limpio, sin usar hotkeys de Assistant:
+  - hotkeys externos del sistema o de otras apps dejan de comportarse normal
+  - ejemplos reportados por el usuario:
+    - `Alt+Space`
+    - `Win+A`
+- El problema no depende de usar primero un chord o una acción de Assistant:
+  - aparece desde boot con la app viva
+- En logs se observaron ráfagas de:
+  - `backend.key_event`
+  - `injected: true`
+  - muchas teclas `VK_A0`
+- Eso refuerza que el backend global nuevo no es apto como path productivo actual.
+- `Alt+R` no entra de forma confiable al flujo de prefix:
+  - no deja trazas esperadas como `backend.prefix_triggered` o `chord_service.prefix_started`
+- Los hotkeys simples de la app sí llegaron a funcionar en momentos concretos:
+  - `Alt+Q`
+  - `Alt+Shift+W`
+- `Alt+T` no estaba roto por captura:
+  - simplemente no estaba configurado en settings
+- El Prompt Editor sí tiene soporte UI para hotkey:
+  - el campo existe en la vista
+  - el problema no era que la feature no existiera en código
+- El cierre del Prompt Editor fue revalidado:
+  - `webview.close_requested`
+  - luego `hotkeys.resumed`
+  - o sea: cerrar el editor cierra la ventana y reanuda hotkeys, no cierra toda la app
+
+### Conclusiones de arquitectura
+
+- Se decidió ampliar el foco:
+  - dejar de pensar solo en `ChordService`
+  - pasar a un `InputService`/subsistema reusable para:
+    - hotkeys simples
+    - chords
+    - modos transitorios
+    - which-key / hint model
+- Se confirmó que la arquitectura reusable sí vale la pena.
+- Se confirmó que la implementación actual del backend global Windows no debe tomarse como base final.
+- Se investigaron referencias externas para mejorar el rediseño:
+  - modal hotkeys
+  - transient keymaps
+  - backends con capacidades
+  - helper nativo separado como dirección probable
+
+### Documento nuevo creado
+
+- Documento rector nuevo:
+  - `DOC/input-service-master-plan.md`
+
+### Qué quedó definido en ese plan
+
+- objetivo del nuevo subsistema
+- problemas confirmados del backend actual
+- arquitectura por capas:
+  - core reusable
+  - backend adapters
+  - overlay adapter
+  - app integration layer
+- API conceptual
+- fases del trabajo:
+  - Fase 0: documento rector
+  - Fase 1: core puro
+  - Fase 2: adapter temporal seguro
+  - Fase 3: backend Windows serio
+  - Fase 4: cleanup de migración
+  - Fase 5: extracción reusable
+- to-dos y checkpoints de validación manual
+
+### Estado actual al cerrar
+
+- La app puede seguir viva aunque el usuario no la vea claramente en el tray.
+- El backend global nuevo quedó conceptualmente descartado como path productivo inmediato.
+- El rediseño no se abandona:
+  - se conserva la idea de arquitectura reusable
+  - se cambia el foco desde “hook actual” hacia “InputService + adapters”
+- El repo quedó con documento nuevo de plan maestro.
+
+### Próximo paso concreto al retomar
+
+Cuando el usuario arranque la próxima sesión y diga `go`:
+
+1. Leer:
+   - `DOC/debug-session-flow.md`
+   - `DOC/input-service-master-plan.md`
+2. Empezar Fase 1.
+3. Crear el core puro del nuevo subsistema:
+   - `src/input-service/core/input-service.ts`
+   - `src/input-service/core/input-types.ts`
+   - `src/input-service/core/input-state.ts`
+   - `src/input-service/core/hint-model.ts`
+   - `src/input-service/core/input-service.test.ts`
+4. No volver a tocar todavía el backend Windows productivo.
+5. Usar tests puros como criterio de avance antes de cualquier nueva integración con la app.

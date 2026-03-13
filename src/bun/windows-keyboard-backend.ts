@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { dlopen, FFIType } from "bun:ffi";
 import { createLogger } from "./logger";
 import type {
@@ -170,10 +172,43 @@ export class WindowsKeyboardBackend implements KeyboardBackend {
   private workerThreadId: number | null = null;
   private started = false;
 
+  private resolveWorkerEntrypoint(): string {
+    const candidates = new Set<string>([
+      resolve(import.meta.dir, "windows-keyboard-hook-worker.ts"),
+      resolve(import.meta.dir, "windows-keyboard-hook-worker.js"),
+      resolve(process.cwd(), "src", "bun", "windows-keyboard-hook-worker.ts"),
+      resolve(process.cwd(), "src", "bun", "windows-keyboard-hook-worker.js"),
+    ]);
+
+    for (const startDir of [import.meta.dir, process.cwd()]) {
+      let currentDir = startDir;
+      for (let depth = 0; depth < 8; depth += 1) {
+        candidates.add(resolve(currentDir, "src", "bun", "windows-keyboard-hook-worker.ts"));
+        candidates.add(resolve(currentDir, "src", "bun", "windows-keyboard-hook-worker.js"));
+        const parentDir = dirname(currentDir);
+        if (parentDir === currentDir) break;
+        currentDir = parentDir;
+      }
+    }
+
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    throw new Error(
+      `Windows keyboard hook worker entrypoint not found. Checked: ${candidates.join(", ")}`,
+    );
+  }
+
   async start(): Promise<void> {
     if (this.started) return;
 
-    const worker = new Worker(new URL("./windows-keyboard-hook-worker.ts", import.meta.url).href, {
+    const workerEntrypoint = this.resolveWorkerEntrypoint();
+    this.log.info("backend.worker_entrypoint_resolved", { workerEntrypoint });
+
+    const worker = new Worker(workerEntrypoint, {
       type: "module",
     });
 

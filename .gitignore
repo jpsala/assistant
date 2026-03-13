@@ -4,6 +4,7 @@ build/
 artifacts/
 .tmp-bun-check/
 .tmp-picker-check/
+.tmp-dev-runtime/
 .env
 settings.conf
 *.conf
