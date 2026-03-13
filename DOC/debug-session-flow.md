@@ -404,3 +404,71 @@ Cuando el usuario arranque la próxima sesión y diga `go`:
    - `src/input-service/core/input-service.test.ts`
 4. No volver a tocar todavía el backend Windows productivo.
 5. Usar tests puros como criterio de avance antes de cualquier nueva integración con la app.
+
+## Cierre de sesión - 2026-03-13 (Input Service integration and old chord cleanup)
+
+### Contexto de trabajo
+
+- Sesión enfocada en completar la Fase 2 inicial del `InputService` y validar el comportamiento real en `dev`.
+- Se trabajó con reinicios frecuentes y prueba manual directa del usuario sobre hotkeys/chords.
+
+### Implementado en esta sesión
+
+- Se agregó `InputService` core reusable con:
+  - singles semánticos
+  - pending sessions
+  - hint model
+  - timeout / cancelación / invalid key
+  - tests puros
+- Se agregó adapter temporal seguro:
+  - `ElectrobunShortcutBackend`
+  - `AssistantInputFacade`
+- `src/bun/hotkeys.ts` quedó migrado al facade nuevo.
+- Se agregó helper operativo:
+  - `scripts/restart-dev.ps1`
+- Se ajustó UX del hint:
+  - al aparecer el overlay, la sesión se extiende
+  - se corrigió un bug de parpadeo/reaparición del hint
+- Cleanup aplicado:
+  - se removió el camino viejo huérfano de chords/backend Windows:
+    - `src/bun/chord-service.ts`
+    - `src/bun/chord-types.ts`
+    - `src/bun/chord-service.test.ts`
+    - `src/bun/keyboard-backend.ts`
+    - `src/bun/windows-keyboard-backend.ts`
+    - `src/bun/windows-keyboard-backend.test.ts`
+    - `src/bun/windows-keyboard-backend-spike.ts`
+    - `src/bun/windows-keyboard-hook-worker.ts`
+
+### Validación realizada
+
+- Tests corridos:
+  - `bun test src/input-service/core/input-service.test.ts`
+- Validación manual del usuario en `dev`:
+  - `Alt+Shift+W` ok
+  - `Alt+Q` ok
+  - `Alt+R,C` ok
+  - el hint del chord ya no degrada el teclado global
+  - el hint quedó estable después del fix de reentrada/parpadeo
+
+### Hallazgos principales
+
+- El problema operativo de restart no era la app:
+  - era el wrapper `bun.ps1` cuando se intentaba lanzar `bun` por nombre desde PowerShell
+- Para este repo conviene reiniciar `dev` con `node_modules/electrobun/.cache/electrobun.exe dev` y no a través del shim de PowerShell.
+- Después de migrar `hotkeys.ts`, el backend viejo Windows quedó totalmente muerto en runtime.
+
+### Estado actual al cerrar
+
+- La arquitectura activa de input/hotkeys quedó unificada sobre `InputService` + backend temporal seguro.
+- El repo quedó sin el código viejo huérfano del spike de backend Windows.
+- `dev` sigue siendo el flujo principal de validación manual.
+
+### Próximo paso concreto al retomar
+
+1. Mantener este restart flow:
+   - usar `scripts/restart-dev.ps1`
+2. Seguir con cleanup/documentación de la arquitectura nueva si hace falta.
+3. Si aparece un nuevo problema real de chords:
+   - debug sobre `src/input-service/*`
+   - no reintroducir el backend Windows viejo.
