@@ -133,3 +133,95 @@ Este documento define el flow de trabajo para sesiones largas de debug en este r
   - `DOC/next-session-chord-service-kickoff.md`
 - Próximo paso de implementación:
   - crear el core `ChordService` como state machine desacoplada del backend nativo
+
+## Cierre de sesión - 2026-03-13 (Chord Service)
+
+### Contexto de trabajo
+
+- Sesión enfocada exclusivamente en el rediseño del subsistema de chords/which-key.
+- Se respetó el scope por fases:
+  - primero core desacoplado
+  - después spike del backend Windows
+  - después integración parcial solo para multi-step chords
+
+### Implementado en esta sesión
+
+- Docs de arranque/rediseño consolidados y comiteados.
+- Core nuevo `ChordService` implementado como state machine pura:
+  - registro/unregister de chords
+  - estado `pending`
+  - timeout
+  - cancelación por `Esc`
+  - invalid key handling
+  - hint model derivado del estado
+- Tests puros agregados para el core.
+- `WindowsKeyboardBackend` prototipo implementado con hook global low-level en worker dedicado.
+- Integración parcial realizada:
+  - singles siguen por `GlobalShortcut`
+  - chords multi-step pasan por `ChordService` + backend Windows
+- El hook Windows ahora mantiene bindings de chords en el worker y puede consumir el suffix válido en tiempo de hook.
+
+### Hallazgos principales
+
+- El approach previo basado en registrar suffix shortcuts temporales era la fuente real de la carrera.
+- Para consumir la segunda tecla a tiempo no alcanzaba con que el main thread conozca el estado:
+  - el worker del hook necesitó su propia tabla de bindings/pending state
+- `Worker.data` no resultó usable como se asumió inicialmente en este runtime:
+  - se reemplazó por sincronización del estado del hook vía `PostThreadMessageW`
+- Al reiniciar `dev` desde terminal usando `bun` por nombre, Windows resolvía `bun.ps1`:
+  - eso abría el diálogo para elegir app para `.ps1`
+  - la solución operativa fue usar el ejecutable real `C:\\Users\\jpsal\\.bun\\bin\\bun.exe`
+
+### Validación realizada
+
+- Tests corridos:
+  - `bun test src/bun/chord-service.test.ts src/bun/windows-keyboard-backend.test.ts`
+- Build de verificación:
+  - `bun build src/bun/index.ts --target bun`
+- Sanity checks del backend:
+  - start
+  - register/unregister bindings
+  - stop
+- Validación manual final del usuario:
+  - `dev` reiniciado correctamente
+  - hotkeys funcionando
+  - chord rápido validado como “anduvo”
+
+### Commits relevantes de esta sesión
+
+- `90a93e8` `docs: add chord service redesign session plan`
+- `1d25b40` `refactor: add chord service core state machine`
+- `458168c` `spike: add windows keyboard backend prototype`
+- `efaa8f2` `feat: route multi-step chords through chord service`
+- `23e2268` `fix: stabilize chord cancellation and invalid-key handling`
+
+### Qué no se tocó
+
+- no se tocó `ffi.ts` para hooks productivos extra fuera de lo necesario para el spike/backend
+- no se reabrió trabajo de ventanas/persistencia
+- no se migraron los singles al backend nuevo
+- no se hizo cleanup final del camino viejo de chords fallback/no-Windows
+
+### Estado actual al cerrar
+
+- El repo quedó limpio.
+- El nuevo path de chords está activo para multi-step chords en Windows.
+- Singles siguen por el camino anterior.
+- La validación manual mínima dio bien después del reinicio correcto de `dev`.
+
+### Próximo paso concreto al retomar
+
+1. Leer este documento.
+2. Levantar `dev` usando el ejecutable real de Bun si hace falta evitar el shim `.ps1`.
+3. Revalidar manualmente varios chords rápidos en apps distintas:
+   - Notepad
+   - navegador
+   - editor de texto
+4. Mirar `latest.log` para confirmar trazas:
+   - `backend.key_event`
+   - `chord_service.prefix_started`
+   - `chord_service.suffix_matched`
+   - `chord_service.cancelled` / `chord_service.timeout`
+5. Si todo sigue estable:
+   - limpiar/degradar el camino viejo de chords
+   - decidir si el backend actual queda como base productiva o necesita más hardening
