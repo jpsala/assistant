@@ -413,6 +413,9 @@ function registerChord(
       suffix,
     };
     chordActionsByName.set(name, action);
+    void chordBackend.registerChordBinding({ id: name, prefix, suffix }).catch((error) => {
+      log.error("chord.binding_register_failed", { name, prefix, suffix, error });
+    });
     chordService.registerChord({ prefix, suffix, actionId: name, label });
     registered.set(name, [`__chord__${prefix}::${suffix}`]);
     return true;
@@ -628,6 +631,7 @@ export function unregisterHotkey(name: string): void {
       const [prefix, suffix] = rest.split("::");
       chordActionsByName.delete(name);
       if (hasChordBackend()) {
+        void chordBackend?.unregisterChordBinding(name);
         chordService.unregisterChord(name);
         const refs = chordPrefixRefs.get(prefix);
         refs?.delete(name);
@@ -659,6 +663,10 @@ export function unregisterHotkey(name: string): void {
 
 /** Unregister all hotkeys */
 export function unregisterAll(): void {
+  const chordBindingNames = Array.from(registeredInfo.values())
+    .filter((info) => info.kind === "chord")
+    .map((info) => info.name);
+
   GlobalShortcut.unregisterAll();
   registered.clear();
   registeredInfo.clear();
@@ -667,6 +675,9 @@ export function unregisterAll(): void {
   chordActionsByName.clear();
   for (const prefix of chordPrefixRefs.keys()) {
     void chordBackend?.unregisterPrefix(prefix);
+  }
+  for (const name of chordBindingNames) {
+    void chordBackend?.unregisterChordBinding(name);
   }
   chordPrefixRefs.clear();
   chordPrefixes.clear();

@@ -7,12 +7,17 @@ const WM_KEYUP = 0x0101;
 const WM_SYSKEYDOWN = 0x0104;
 const WM_SYSKEYUP = 0x0105;
 const WM_QUIT = 0x0012;
+const WM_APP = 0x8000;
+const WM_CHORD_CLEAR = WM_APP + 1;
+const WM_CHORD_ADD = WM_APP + 2;
+const WM_CHORD_TIMEOUT = WM_APP + 3;
 
 const VK_SHIFT = 0x10;
 const VK_CONTROL = 0x11;
 const VK_MENU = 0x12;
 const VK_LWIN = 0x5b;
 const VK_RWIN = 0x5c;
+const VK_ESCAPE = 0x1b;
 
 const LLKHF_INJECTED = 0x10;
 
@@ -24,7 +29,7 @@ const { symbols: user32 } = dlopen("user32.dll", {
   TranslateMessage: { returns: FFIType.bool, args: [FFIType.ptr] },
   DispatchMessageW: { returns: FFIType.isize, args: [FFIType.ptr] },
   GetAsyncKeyState: { returns: FFIType.i16, args: [FFIType.i32] },
-  PostThreadMessageW: { returns: FFIType.bool, args: [FFIType.u32, FFIType.u32, FFIType.usize, FFIType.isize] },
+  GetForegroundWindow: { returns: FFIType.ptr, args: [] },
 });
 
 const { symbols: kernel32 } = dlopen("kernel32.dll", {
@@ -33,6 +38,15 @@ const { symbols: kernel32 } = dlopen("kernel32.dll", {
 
 function isPressed(vk: number): boolean {
   return ((user32.GetAsyncKeyState(vk) as number) & 0x8000) !== 0;
+}
+
+function modifierMaskFromPressed(): number {
+  let mask = 0;
+  if (isPressed(VK_MENU)) mask |= 1;
+  if (isPressed(VK_CONTROL)) mask |= 2;
+  if (isPressed(VK_SHIFT)) mask |= 4;
+  if (isPressed(VK_LWIN) || isPressed(VK_RWIN)) mask |= 8;
+  return mask;
 }
 
 function vkToKey(vk: number): string {
@@ -75,6 +89,40 @@ function vkToKey(vk: number): string {
 }
 
 const pressed = new Set<number>();
+const chordBindings: Array<{ prefixVk: number; prefixMask: number; suffixVk: number }> = [];
+let timeoutMs = 900;
+let pendingPrefixVk = 0;
+let pendingPrefixMask = 0;
+let pendingDeadline = 0;
+
+function clearPending(): void {
+  pendingPrefixVk = 0;
+  pendingPrefixMask = 0;
+  pendingDeadline = 0;
+}
+
+function refreshPending(timestamp: number): void {
+  if (pendingPrefixVk !== 0 && timestamp > pendingDeadline) {
+    clearPending();
+  }
+}
+
+function isPendingActive(timestamp: number): boolean {
+  return pendingPrefixVk !== 0 && timestamp <= pendingDeadline;
+}
+
+function hasRegisteredPrefix(vkCode: number, modifierMask: number): boolean {
+  return chordBindings.some((binding) => binding.prefixVk === vkCode && binding.prefixMask === modifierMask);
+}
+
+function hasMatchingSuffix(vkCode: number): boolean {
+  return chordBindings.some(
+    (binding) =>
+      binding.prefixVk === pendingPrefixVk &&
+      binding.prefixMask === pendingPrefixMask &&
+      binding.suffixVk === vkCode,
+  );
+}
 
 const hookCallback = new JSCallback(
   (code, wParam, lParam) => {
@@ -88,22 +136,67 @@ const hookCallback = new JSCallback(
         const timestamp = dv.getUint32(12, true);
         const type = msg === WM_KEYUP || msg === WM_SYSKEYUP ? "up" : "down";
         const repeat = type === "down" && pressed.has(vkCode);
+        const injected = (flags & LLKHF_INJECTED) !== 0;
+        const sourceHwnd = Number(user32.GetForegroundWindow() as unknown as bigint) || null;
 
         if (type === "down") pressed.add(vkCode);
         else pressed.delete(vkCode);
 
+        refreshPending(timestamp);
+
+        const event = {
+          type,
+          key: vkToKey(vkCode),
+          alt: isPressed(VK_MENU),
+          ctrl: isPressed(VK_CONTROL),
+          shift: isPressed(VK_SHIFT),
+          meta: isPressed(VK_LWIN) || isPressed(VK_RWIN),
+          repeat,
+          timestamp,
+        };
+
+        if (!injected && type === "down" && !repeat) {
+          const modifierMask = modifierMaskFromPressed();
+
+          if (hasRegisteredPrefix(vkCode, modifierMask)) {
+            pendingPrefixVk = vkCode;
+            pendingPrefixMask = modifierMask;
+            pendingDeadline = timestamp + timeoutMs;
+            postMessage({
+              type: "prefix-triggered",
+              event: {
+                ...event,
+                sourceHwnd,
+              },
+            });
+          } else if (isPendingActive(timestamp)) {
+            if (vkCode === VK_ESCAPE) {
+              clearPending();
+            } else if (hasMatchingSuffix(vkCode)) {
+              clearPending();
+              postMessage({
+                type: "key-event",
+                event: {
+                  ...event,
+                  injected,
+                  consumed: true,
+                  sourceHwnd,
+                },
+              });
+              return 1;
+            } else {
+              clearPending();
+            }
+          }
+        }
+
         postMessage({
           type: "key-event",
           event: {
-            type,
-            key: vkToKey(vkCode),
-            alt: isPressed(VK_MENU),
-            ctrl: isPressed(VK_CONTROL),
-            shift: isPressed(VK_SHIFT),
-            meta: isPressed(VK_LWIN) || isPressed(VK_RWIN),
-            repeat,
-            timestamp,
-            injected: (flags & LLKHF_INJECTED) !== 0,
+            ...event,
+            injected,
+            consumed: false,
+            sourceHwnd,
           },
         });
       }
@@ -132,6 +225,32 @@ if (!hook) {
   while (true) {
     const result = user32.GetMessageW(ptr(messageBuffer), null, 0, 0) as number;
     if (result <= 0) break;
+
+    const dv = new DataView(messageBuffer.buffer);
+    const message = dv.getUint32(8, true);
+    const wParam = Number(dv.getBigUint64(16, true));
+    const lParam = Number(dv.getBigInt64(24, true));
+
+    if (message === WM_CHORD_TIMEOUT) {
+      timeoutMs = wParam;
+      continue;
+    }
+
+    if (message === WM_CHORD_CLEAR) {
+      chordBindings.length = 0;
+      clearPending();
+      continue;
+    }
+
+    if (message === WM_CHORD_ADD) {
+      chordBindings.push({
+        prefixVk: wParam & 0xff,
+        prefixMask: (wParam >> 8) & 0xff,
+        suffixVk: lParam & 0xffff,
+      });
+      continue;
+    }
+
     user32.TranslateMessage(ptr(messageBuffer));
     user32.DispatchMessageW(ptr(messageBuffer));
   }

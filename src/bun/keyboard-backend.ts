@@ -15,10 +15,18 @@ export type PrefixRegistration = {
   id: string;
 };
 
+export type ChordBindingRegistration = {
+  id: string;
+  prefix: string;
+  suffix: string;
+};
+
 export interface KeyboardBackend {
   start(): Promise<void>;
   stop(): Promise<void>;
   registerPrefix(reg: PrefixRegistration, handler: () => void): Promise<void>;
   unregisterPrefix(id: string): Promise<void>;
+  registerChordBinding(reg: ChordBindingRegistration): Promise<void>;
+  unregisterChordBinding(id: string): Promise<void>;
   onKeyEvent(handler: (event: KeyEvent) => void): () => void;
 }

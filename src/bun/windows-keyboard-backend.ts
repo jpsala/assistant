@@ -1,6 +1,11 @@
 import { dlopen, FFIType } from "bun:ffi";
 import { createLogger } from "./logger";
-import type { KeyboardBackend, KeyEvent, PrefixRegistration } from "./keyboard-backend";
+import type {
+  ChordBindingRegistration,
+  KeyboardBackend,
+  KeyEvent,
+  PrefixRegistration,
+} from "./keyboard-backend";
 
 type PrefixBinding = {
   id: string;
@@ -17,17 +22,32 @@ type PrefixParts = {
   meta: boolean;
 };
 
+type ChordBinding = {
+  id: string;
+  prefix: PrefixParts;
+  suffixVk: number;
+};
+
 type WorkerMessage =
   | { type: "thread-ready"; threadId: number }
   | { type: "started"; threadId: number }
   | { type: "stopped"; threadId: number }
   | { type: "error"; error: string }
   | {
+      type: "prefix-triggered";
+      event: KeyEvent & { sourceHwnd: number | null };
+    }
+  | {
       type: "key-event";
-      event: KeyEvent & { injected?: boolean };
+      event: KeyEvent & { injected?: boolean; consumed?: boolean; sourceHwnd?: number | null };
     };
 
 const WM_QUIT = 0x0012;
+const WM_APP = 0x8000;
+const WM_CHORD_CLEAR = WM_APP + 1;
+const WM_CHORD_ADD = WM_APP + 2;
+const WM_CHORD_TIMEOUT = WM_APP + 3;
+const CHORD_TIMEOUT_MS = 900;
 
 const { symbols: user32 } = dlopen("user32.dll", {
   PostThreadMessageW: { returns: FFIType.bool, args: [FFIType.u32, FFIType.u32, FFIType.usize, FFIType.isize] },
@@ -43,6 +63,46 @@ const MODIFIER_ALIASES = new Map<string, keyof Omit<PrefixParts, "key">>([
   ["cmd", "meta"],
   ["super", "meta"],
 ]);
+
+function modifierMask(parts: PrefixParts): number {
+  let mask = 0;
+  if (parts.alt) mask |= 1;
+  if (parts.ctrl) mask |= 2;
+  if (parts.shift) mask |= 4;
+  if (parts.meta) mask |= 8;
+  return mask;
+}
+
+function keyTokenToVk(key: string): number {
+  const normalized = normalizeKeyToken(key);
+  if (/^[A-Z]$/.test(normalized)) return normalized.charCodeAt(0);
+  if (/^[0-9]$/.test(normalized)) return normalized.charCodeAt(0);
+
+  switch (normalized) {
+    case "Esc":
+      return 0x1b;
+    case "Space":
+      return 0x20;
+    case "Enter":
+      return 0x0d;
+    case "Tab":
+      return 0x09;
+    case "Backspace":
+      return 0x08;
+    case "Delete":
+      return 0x2e;
+    case "Left":
+      return 0x25;
+    case "Up":
+      return 0x26;
+    case "Right":
+      return 0x27;
+    case "Down":
+      return 0x28;
+    default:
+      throw new Error(`Unsupported key token for Windows VK mapping: ${normalized}`);
+  }
+}
 
 export function normalizeKeyToken(token: string): string {
   const trimmed = token.trim();
@@ -105,6 +165,7 @@ export class WindowsKeyboardBackend implements KeyboardBackend {
   private readonly log = createLogger("windows-keyboard-backend");
   private readonly listeners = new Set<(event: KeyEvent) => void>();
   private readonly prefixes = new Map<string, PrefixBinding>();
+  private readonly chordBindings = new Map<string, ChordBinding>();
   private worker: Worker | null = null;
   private workerThreadId: number | null = null;
   private started = false;
@@ -146,6 +207,7 @@ export class WindowsKeyboardBackend implements KeyboardBackend {
           cleanup();
           this.workerThreadId = data.threadId;
           this.started = true;
+          this.syncBindingsWorker();
           this.log.info("backend.hook_started", { threadId: data.threadId });
           resolve();
           return;
@@ -219,6 +281,21 @@ export class WindowsKeyboardBackend implements KeyboardBackend {
     this.prefixes.delete(id);
   }
 
+  async registerChordBinding(reg: ChordBindingRegistration): Promise<void> {
+    const prefix = parseAccelerator(reg.prefix);
+    this.chordBindings.set(reg.id, {
+      id: reg.id,
+      prefix,
+      suffixVk: keyTokenToVk(reg.suffix),
+    });
+    this.syncBindingsWorker();
+  }
+
+  async unregisterChordBinding(id: string): Promise<void> {
+    this.chordBindings.delete(id);
+    this.syncBindingsWorker();
+  }
+
   onKeyEvent(handler: (event: KeyEvent) => void): () => void {
     this.listeners.add(handler);
     return () => {
@@ -232,19 +309,26 @@ export class WindowsKeyboardBackend implements KeyboardBackend {
 
   private readonly handleWorkerMessage = (message: MessageEvent<WorkerMessage>): void => {
     const data = message.data;
+    if (data.type === "prefix-triggered") {
+      this.log.debug("backend.prefix_triggered", { ...data.event });
+      for (const prefix of this.prefixes.values()) {
+        if (matchesPrefix(prefix.parts, data.event)) {
+          prefix.handler();
+        }
+      }
+      return;
+    }
+
     if (data.type === "key-event") {
-      const { injected, ...event } = data.event;
+      const { injected, consumed, sourceHwnd, ...event } = data.event;
       this.log.debug("backend.key_event", {
         ...event,
         injected,
+        consumed,
+        sourceHwnd,
       });
       for (const listener of this.listeners) {
         listener(event);
-      }
-      for (const prefix of this.prefixes.values()) {
-        if (matchesPrefix(prefix.parts, event)) {
-          prefix.handler();
-        }
       }
       return;
     }
@@ -253,4 +337,18 @@ export class WindowsKeyboardBackend implements KeyboardBackend {
       this.log.error("backend.hook_error", { error: data.error });
     }
   };
+
+  private syncBindingsWorker(): void {
+    if (this.workerThreadId === null) return;
+
+    user32.PostThreadMessageW(this.workerThreadId, WM_CHORD_TIMEOUT, CHORD_TIMEOUT_MS, 0);
+    user32.PostThreadMessageW(this.workerThreadId, WM_CHORD_CLEAR, 0, 0);
+
+    for (const binding of this.chordBindings.values()) {
+      const packedPrefix =
+        (keyTokenToVk(binding.prefix.key) & 0xff) |
+        ((modifierMask(binding.prefix) & 0xff) << 8);
+      user32.PostThreadMessageW(this.workerThreadId, WM_CHORD_ADD, packedPrefix, binding.suffixVk);
+    }
+  }
 }
